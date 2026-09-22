@@ -59,8 +59,11 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
     }
   }, [isOpen, initialContext]);
 
-  // Determine current app URL
-  const appUrl = typeof window !== 'undefined' ? window.location.href.split('?')[0].split('#')[0] : 'https://lifeos2027.app';
+  // Determine a shareable public URL. Capacitor's local WebView URL is not
+  // shareable on Facebook, so use the repository landing page as the APK fallback.
+  const appUrl = typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)
+    ? window.location.href.split('?')[0].split('#')[0]
+    : 'https://github.com/jbsboutiquems/Life-OS-Off-Script-2027-android-';
 
   // Build snippet according to selected context
   useEffect(() => {
@@ -157,7 +160,7 @@ Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.ne
   };
 
   const handleShareFacebook = () => {
-    const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(appUrl)}`;
+    const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(appUrl)}&quote=${encodeURIComponent(shareText)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
@@ -576,6 +579,19 @@ Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.ne
                   <path d="M12.186 24C5.503 24 0 18.608 0 12.053 0 5.498 5.503.107 12.186.107c6.613 0 12.072 5.253 12.072 11.758 0 3.823-1.848 7.377-5.071 9.754l-1.397-1.745c2.657-1.961 4.18-4.908 4.18-8.009 0-5.187-4.372-9.47-9.784-9.47-5.412 0-9.896 4.283-9.896 9.47 0 5.186 4.484 9.47 9.896 9.47 3.328 0 6.37-1.637 8.134-4.378l1.838 1.183C19.866 21.902 16.208 24 12.186 24zm4.18-12.053c0-2.31-1.874-4.185-4.18-4.185-2.307 0-4.181 1.875-4.181 4.185s1.874 4.186 4.181 4.186c2.306 0 4.18-1.876 4.18-4.186z"/>
                 </svg>
                 <span>Share to Threads</span>
+              </button>
+
+              {/* Facebook */}
+              <button
+                type="button"
+                id="share-facebook-btn"
+                onClick={handleShareFacebook}
+                className="flex items-center justify-center space-x-2 px-3.5 py-2.5 bg-[#1877F2] hover:bg-[#0d65d9] text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+              >
+                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.09 4.39 23.06 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.05 1.79-4.75 4.58-4.75 1.33 0 2.72.24 2.72.24v3.02h-1.53c-1.51 0-1.98.94-1.98 1.9v2.25h3.37l-.54 3.49h-2.83V24C19.61 23.06 24 18.09 24 12.07z" />
+                </svg>
+                <span>Share to Facebook</span>
               </button>
 
               {/* LinkedIn */}

@@ -16,6 +16,7 @@ import { SocialShareModal, ShareContextType } from './components/SocialShareModa
 import { AndroidInstallBanner } from './components/AndroidInstallBanner';
 import { AndroidBottomNav } from './components/AndroidBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { exportDailyLogPdf } from './services/pdf';
 import {
   Compass,
   Sparkles,
@@ -97,6 +98,11 @@ export default function App() {
   const handleOpenShare = (context: ShareContextType = 'daily') => {
     setShareContext(context);
     setShareModalOpen(true);
+  };
+
+  const handleExportPdf = () => {
+    exportDailyLogPdf({ user, entry: dailyEntry, snapshot: latestSnapshot, goals, antiGoals });
+    showToast('PDF downloaded. Paper remembers what the cloud forgets.');
   };
 
   // Initial load from backend API
@@ -298,6 +304,7 @@ export default function App() {
         onOpenStickers={() => setStickersModalOpen(true)}
         onOpenShare={() => handleOpenShare('daily')}
         onRefreshData={loadData}
+        onExportPdf={handleExportPdf}
         isDiagnosing={isDiagnosing}
       />
 

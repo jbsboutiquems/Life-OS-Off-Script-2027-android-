@@ -1,6 +1,6 @@
 import React from 'react';
 import { UserProfile } from '../types';
-import { Sparkles, Compass, Flame, ShieldAlert, BookOpen, DollarSign, Award, Smile, RefreshCw, Activity, Image as ImageIcon, Share2 } from 'lucide-react';
+import { Sparkles, Compass, Flame, ShieldAlert, BookOpen, DollarSign, Award, Smile, RefreshCw, Activity, Image as ImageIcon, Share2, FileDown } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
 export type ActiveTabType = 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes' | 'cover';
@@ -14,6 +14,7 @@ interface HeaderProps {
   onOpenStickers: () => void;
   onOpenShare?: () => void;
   onRefreshData?: () => void;
+  onExportPdf?: () => void;
   isDiagnosing?: boolean;
 }
 
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenStickers,
   onOpenShare,
   onRefreshData,
+  onExportPdf,
   isDiagnosing = false
 }) => {
   return (
@@ -122,6 +124,18 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <Share2 className="w-3.5 h-3.5" />
                 <span>Share</span>
+              </button>
+            )}
+
+            {onExportPdf && (
+              <button
+                id="header-pdf-btn"
+                onClick={onExportPdf}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-stone-300 hover:border-rose-400 text-slate-800 hover:text-rose-600 rounded-lg shadow-xs transition-colors"
+                title="Download the current Life OS log as a PDF"
+              >
+                <FileDown className="w-3.5 h-3.5 text-rose-500" />
+                <span>PDF</span>
               </button>
             )}
 

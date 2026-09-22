@@ -1,0 +1,8 @@
+{
+  "appId": "com.snoopyscloset.lifeos.offscript2027",
+  "appName": "Life OS Off Script 2027",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

@@ -1,6 +1,10 @@
 node_modules/
 build/
 dist/
+android/.gradle/
+android/build/
+android/app/build/
+chaos_os_data.json
 coverage/
 .DS_Store
 *.log

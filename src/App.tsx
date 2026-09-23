@@ -9,6 +9,8 @@ import { IdentityProfileView } from './components/IdentityProfileView';
 import { WeeklyDebriefView } from './components/WeeklyDebriefView';
 import { MonthlyMoneyMapView } from './components/MonthlyMoneyMapView';
 import { ThemesGalleryView } from './components/ThemesGalleryView';
+import { FrontMatterView } from './components/FrontMatterView';
+import { PackageAppModal } from './components/PackageAppModal';
 import { StickersSheetModal } from './components/StickersSheetModal';
 import { CoverArtView } from './components/CoverArtView';
 import { ChaosTrendline } from './components/ChaosTrendline';
@@ -28,15 +30,18 @@ import {
   Image as ImageIcon,
   Smile,
   CheckCircle,
-  Activity
+  Activity,
+  Layers,
+  Download
 } from 'lucide-react';
 
 export default function App() {
   const [currentDate, setCurrentDate] = useState<string>(() => {
     return new Date().toISOString().split('T')[0];
   });
-  const [activeTab, setActiveTab] = useState<'cover' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes'>('daily');
+  const [activeTab, setActiveTab] = useState<'cover' | 'frontmatter' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes'>('daily');
   const [stickersModalOpen, setStickersModalOpen] = useState(false);
+  const [packageModalOpen, setPackageModalOpen] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareContext, setShareContext] = useState<ShareContextType>('daily');
   const [allEntries, setAllEntries] = useState<DailyEntry[]>([]);
@@ -278,6 +283,7 @@ export default function App() {
 
   const navigationItems = [
     { id: 'cover', label: 'Cover Art & Jacket', icon: ImageIcon, badge: 'Art' },
+    { id: 'frontmatter', label: 'Front Matter & Codex', icon: Layers, badge: 'Codex' },
     { id: 'daily', label: 'Daily OS (Launch · Orbit · Landing)', icon: Compass, badge: 'Core' },
     { id: 'trendline', label: 'Chaos Trendline (30-Day)', icon: Activity, badge: 'Analysis' },
     { id: 'diagnostic', label: 'Mei Diagnostic & Sassy Mirror', icon: Sparkles, badge: 'AI' },
@@ -303,6 +309,7 @@ export default function App() {
         setCurrentDate={setCurrentDate}
         onOpenStickers={() => setStickersModalOpen(true)}
         onOpenShare={() => handleOpenShare('daily')}
+        onOpenPackage={() => setPackageModalOpen(true)}
         onRefreshData={loadData}
         onExportPdf={handleExportPdf}
         isDiagnosing={isDiagnosing}
@@ -392,9 +399,28 @@ export default function App() {
             </p>
             <button
               onClick={() => setStickersModalOpen(true)}
-              className="w-full py-2 bg-white border border-amber-300 hover:border-amber-400 text-amber-900 rounded-xl text-xs font-bold font-mono-code flex items-center justify-center gap-1.5 shadow-2xs transition-colors"
+              className="w-full py-2 bg-white border border-amber-300 hover:border-amber-400 text-amber-900 rounded-xl text-xs font-bold font-mono-code flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
             >
               <span>✦ Open Sticker Sheets</span>
+            </button>
+          </div>
+
+          {/* Package App & Sovereignty Launcher */}
+          <div className="bg-slate-900 text-stone-200 border border-stone-800 rounded-2xl p-4 shadow-sm space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono-code font-bold uppercase text-amber-400">
+                DATA SOVEREIGNTY
+              </span>
+              <Download className="w-4 h-4 text-rose-400" />
+            </div>
+            <p className="text-[11px] text-stone-300 font-medium">
+              Export offline JSON, install on Android, or print physical layout spreads.
+            </p>
+            <button
+              onClick={() => setPackageModalOpen(true)}
+              className="w-full py-2 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white rounded-xl text-xs font-bold font-mono-code flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+            >
+              <span>✦ Package / Export App</span>
             </button>
           </div>
 
@@ -414,6 +440,16 @@ export default function App() {
               wordOfTheYear={user.word_of_the_year}
               chaosName={user.chaos_name}
               slogan={user.slogan || "Boredom=Death"}
+            />
+          )}
+
+          {activeTab === 'frontmatter' && (
+            <FrontMatterView
+              user={user}
+              onSaveProfile={handleSaveProfile}
+              onNavigateToGoals={() => setActiveTab('goals')}
+              onNavigateToDaily={() => setActiveTab('daily')}
+              onToast={showToast}
             />
           )}
 
@@ -591,6 +627,27 @@ export default function App() {
         onToast={showToast}
       />
 
+      {/* SOVEREIGN DATA / PWA / PRINT PACKAGE MODAL */}
+      <PackageAppModal
+        isOpen={packageModalOpen}
+        onClose={() => setPackageModalOpen(false)}
+        user={user}
+        dailyEntry={dailyEntry}
+        snapshot={latestSnapshot}
+        goals={goals}
+        antiGoals={antiGoals}
+        debriefs={[]}
+        moneyMaps={[]}
+        onToast={showToast}
+        onImportData={(imported) => {
+          if (imported.user) setUser(imported.user);
+          if (imported.goals) setGoals(imported.goals);
+          if (imported.antiGoals) setAntiGoals(imported.antiGoals);
+          if (imported.dailyEntry) setDailyEntry(imported.dailyEntry);
+          showToast("Sovereign backup restored successfully!");
+        }}
+      />
+
       {/* FLOATING TOAST NOTIFICATION */}
       {toastMessage && (
         <div className="fixed bottom-20 md:bottom-5 right-4 md:right-5 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl text-xs font-mono-code flex items-center space-x-2 border border-stone-700 animate-fade-in print:hidden">
@@ -608,6 +665,7 @@ export default function App() {
         setActiveTab={(t) => setActiveTab(t as any)}
         onOpenStickers={() => setStickersModalOpen(true)}
         onOpenShare={() => handleOpenShare('daily')}
+        onOpenPackage={() => setPackageModalOpen(true)}
       />
 
       {/* FOOTER */}

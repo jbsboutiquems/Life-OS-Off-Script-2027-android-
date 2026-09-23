@@ -1,9 +1,9 @@
 import React from 'react';
 import { UserProfile } from '../types';
-import { Sparkles, Compass, Flame, ShieldAlert, BookOpen, DollarSign, Award, Smile, RefreshCw, Activity, Image as ImageIcon, Share2, FileDown } from 'lucide-react';
+import { Sparkles, Compass, Flame, ShieldAlert, BookOpen, DollarSign, Award, Smile, RefreshCw, Activity, Image as ImageIcon, Share2, Download, Layers } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
-export type ActiveTabType = 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes' | 'cover';
+export type ActiveTabType = 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes' | 'cover' | 'frontmatter';
 
 interface HeaderProps {
   user: UserProfile;
@@ -13,8 +13,8 @@ interface HeaderProps {
   setCurrentDate: (date: string) => void;
   onOpenStickers: () => void;
   onOpenShare?: () => void;
+  onOpenPackage?: () => void;
   onRefreshData?: () => void;
-  onExportPdf?: () => void;
   isDiagnosing?: boolean;
 }
 
@@ -26,8 +26,8 @@ export const Header: React.FC<HeaderProps> = ({
   setCurrentDate,
   onOpenStickers,
   onOpenShare,
+  onOpenPackage,
   onRefreshData,
-  onExportPdf,
   isDiagnosing = false
 }) => {
   return (
@@ -127,15 +127,15 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {onExportPdf && (
+            {onOpenPackage && (
               <button
-                id="header-pdf-btn"
-                onClick={onExportPdf}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-stone-300 hover:border-rose-400 text-slate-800 hover:text-rose-600 rounded-lg shadow-xs transition-colors"
-                title="Download the current Life OS log as a PDF"
+                id="header-package-btn"
+                onClick={onOpenPackage}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-black text-white rounded-lg shadow-xs transition-all cursor-pointer"
+                title="Package as Android app, download complete backup, or print physical spreads"
               >
-                <FileDown className="w-3.5 h-3.5 text-rose-500" />
-                <span>PDF</span>
+                <Download className="w-3.5 h-3.5 text-rose-400" />
+                <span>Package App</span>
               </button>
             )}
 
@@ -164,6 +164,18 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Compass className="w-3.5 h-3.5" />
             <span>Daily OS</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('frontmatter')}
+            className={`px-3 py-1.5 rounded-lg flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+              activeTab === 'frontmatter'
+                ? 'bg-stone-900 text-white font-semibold shadow-xs'
+                : 'text-stone-600 hover:text-slate-900 hover:bg-stone-200/60'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5 text-rose-500" />
+            <span>Front Matter &amp; Codex</span>
           </button>
 
           <button

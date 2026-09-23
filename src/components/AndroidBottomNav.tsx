@@ -12,14 +12,18 @@ import {
   Share2,
   Smile,
   X,
-  Mic
+  Mic,
+  Layers,
+  Award,
+  Download
 } from 'lucide-react';
 
 interface AndroidBottomNavProps {
-  activeTab: 'cover' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes';
-  setActiveTab: (tab: 'cover' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes') => void;
+  activeTab: 'cover' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes' | 'frontmatter';
+  setActiveTab: (tab: 'cover' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes' | 'frontmatter') => void;
   onOpenStickers: () => void;
   onOpenShare: () => void;
+  onOpenPackage?: () => void;
   onOpenAudioMemo?: () => void;
 }
 
@@ -28,6 +32,7 @@ export const AndroidBottomNav: React.FC<AndroidBottomNavProps> = ({
   setActiveTab,
   onOpenStickers,
   onOpenShare,
+  onOpenPackage,
   onOpenAudioMemo,
 }) => {
   const [showDrawer, setShowDrawer] = useState(false);
@@ -119,6 +124,32 @@ export const AndroidBottomNav: React.FC<AndroidBottomNavProps> = ({
 
               <button
                 type="button"
+                onClick={() => handleTabSelect('frontmatter')}
+                className={`p-3 rounded-xl flex flex-col items-center justify-center space-y-1.5 border transition-all text-center ${
+                  activeTab === 'frontmatter'
+                    ? 'bg-rose-50 border-rose-500 text-rose-950 font-bold shadow-2xs'
+                    : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-stone-100'
+                }`}
+              >
+                <Layers className="w-5 h-5 text-rose-600" />
+                <span className="text-[11px] font-mono-code font-medium">Front Matter</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTabSelect('themes')}
+                className={`p-3 rounded-xl flex flex-col items-center justify-center space-y-1.5 border transition-all text-center ${
+                  activeTab === 'themes'
+                    ? 'bg-purple-50 border-purple-500 text-purple-950 font-bold shadow-2xs'
+                    : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-stone-100'
+                }`}
+              >
+                <Award className="w-5 h-5 text-purple-600" />
+                <span className="text-[11px] font-mono-code font-medium">12 Themes</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => handleTabSelect('cover')}
                 className={`p-3 rounded-xl flex flex-col items-center justify-center space-y-1.5 border transition-all text-center ${
                   activeTab === 'cover'
@@ -153,6 +184,20 @@ export const AndroidBottomNav: React.FC<AndroidBottomNavProps> = ({
                 <Share2 className="w-5 h-5 text-indigo-600" />
                 <span className="text-[11px] font-mono-code font-medium">Share Card</span>
               </button>
+
+              {onOpenPackage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDrawer(false);
+                    onOpenPackage();
+                  }}
+                  className="p-3 rounded-xl flex flex-col items-center justify-center space-y-1.5 border bg-slate-900 border-stone-800 text-white hover:bg-black transition-all text-center"
+                >
+                  <Download className="w-5 h-5 text-rose-400" />
+                  <span className="text-[11px] font-mono-code font-bold">Package App</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

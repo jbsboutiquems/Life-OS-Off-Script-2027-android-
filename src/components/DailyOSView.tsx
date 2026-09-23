@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DailyEntry, UserProfile, ChaosHoliday, RefinedPrioritiesResult } from '../types';
-import { getHolidayForDate } from '../data/holidays';
-import { Sun, Compass, Moon, Sparkles, CheckCircle2, Circle, Flame, AlertCircle, Save, ArrowLeft, ArrowRight, Wand2, Mic, MicOff, Radio, Volume2, Printer, Share2, Upload, FileAudio, Loader2 } from 'lucide-react';
+import { getHolidayForDate, ExtendedChaosHoliday } from '../data/holidays';
+import { Sun, Compass, Moon, Sparkles, CheckCircle2, Circle, Flame, AlertCircle, Save, ArrowLeft, ArrowRight, Wand2, Mic, MicOff, Radio, Volume2, Printer, Share2, Upload, FileAudio, Loader2, BookOpen, RefreshCw } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { MorningMantraGenerator } from './MorningMantraGenerator';
+import { HolidayAlmanacModal } from './HolidayAlmanacModal';
 import { api } from '../services/api';
 
 interface DailyOSViewProps {
@@ -295,7 +296,15 @@ export const DailyOSView: React.FC<DailyOSViewProps> = ({
     setChaosScore(entry.chaos_score || 5);
   }, [entry]);
 
-  const holiday: ChaosHoliday = getHolidayForDate(currentDate);
+  const holiday: ExtendedChaosHoliday = getHolidayForDate(currentDate);
+  const [almanacOpen, setAlmanacOpen] = useState(false);
+  const [dareIndex, setDareIndex] = useState(0);
+
+  useEffect(() => {
+    setDareIndex(0);
+  }, [currentDate]);
+
+  const activeDare = holiday.adventures[dareIndex % holiday.adventures.length] || holiday.adventures[0] || '';
 
   const handleSave = () => {
     onSaveEntry({
@@ -309,7 +318,7 @@ export const DailyOSView: React.FC<DailyOSViewProps> = ({
       evening_notes: eveningNotes,
       chaos_score: chaosScore,
       holiday_title: holiday.title,
-      holiday_adventure: holiday.adventures[0] || ''
+      holiday_adventure: activeDare
     });
     setIsSavedNotice(true);
     setTimeout(() => setIsSavedNotice(false), 2000);
@@ -388,9 +397,7 @@ export const DailyOSView: React.FC<DailyOSViewProps> = ({
                 SLOGAN: "{user.slogan || 'Boredom=Death'}"
               </span>
               <span className="text-xs text-stone-500 font-mono-code">
-                Day {(new Date(currentDate).getTime() - new Date("2027-01-01").getTime()) / (1000 * 3600 * 24) + 1 > 0
-                  ? Math.floor((new Date(currentDate).getTime() - new Date("2027-01-01").getTime()) / (1000 * 3600 * 24) + 1)
-                  : 1} of 365
+                Day {holiday.dayOfYear || 1} of 366 · Theme: {holiday.theme}
               </span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-bold font-serif-display text-slate-900 mt-1">
@@ -401,7 +408,7 @@ export const DailyOSView: React.FC<DailyOSViewProps> = ({
                 year: 'numeric'
               })}
             </h2>
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
                 ✦ Unofficial Holiday: {holiday.title}
               </span>
@@ -410,26 +417,36 @@ export const DailyOSView: React.FC<DailyOSViewProps> = ({
           </div>
 
           {/* Quick Date Stepper & Save & Print */}
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             <button
               onClick={() => shiftDate(-1)}
-              className="p-2 bg-white border border-stone-300 hover:bg-stone-100 rounded-lg text-stone-700 transition-colors print:hidden"
+              className="p-2 bg-white border border-stone-300 hover:bg-stone-100 rounded-lg text-stone-700 transition-colors print:hidden cursor-pointer"
               title="Previous Day"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => shiftDate(1)}
-              className="p-2 bg-white border border-stone-300 hover:bg-stone-100 rounded-lg text-stone-700 transition-colors print:hidden"
+              className="p-2 bg-white border border-stone-300 hover:bg-stone-100 rounded-lg text-stone-700 transition-colors print:hidden cursor-pointer"
               title="Next Day"
             >
               <ArrowRight className="w-4 h-4" />
             </button>
             <button
               type="button"
+              id="open-almanac-btn"
+              onClick={() => setAlmanacOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-stone-900 hover:bg-black text-white text-xs font-bold font-mono-code rounded-lg shadow-xs transition-colors print:hidden cursor-pointer"
+              title="Browse all 366 unique unofficial holidays, search themes, or jump to any day"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+              <span>366 Almanac</span>
+            </button>
+            <button
+              type="button"
               id="print-daily-os-btn"
               onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-stone-100 border border-stone-300 text-stone-800 text-xs font-bold font-mono-code rounded-lg shadow-xs transition-colors print:hidden"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-stone-100 border border-stone-300 text-stone-800 text-xs font-bold font-mono-code rounded-lg shadow-xs transition-colors print:hidden cursor-pointer"
               title="Print Daily Flight Log & Diagnostic Insights to structured PDF"
             >
               <Printer className="w-3.5 h-3.5 text-stone-600" />
@@ -491,28 +508,52 @@ export const DailyOSView: React.FC<DailyOSViewProps> = ({
 
               {/* Morning Intention */}
               <div>
-                <label className="block text-stone-700 font-bold mb-1">
-                  Morning Intention <span className="font-normal text-stone-500 font-mono-code">(one sentence energy)</span>:
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-stone-700 font-bold">
+                    Morning Intention <span className="font-normal text-stone-500 font-mono-code">(one sentence energy)</span>:
+                  </label>
+                  {holiday.suggestedIntention && (
+                    <button
+                      type="button"
+                      onClick={() => setMorningIntention(holiday.suggestedIntention!)}
+                      className="text-[10px] font-mono-code font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                      title="Adopt today's unique holiday intention"
+                    >
+                      ✦ Use Holiday Intention
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={morningIntention}
                   onChange={(e) => setMorningIntention(e.target.value)}
-                  placeholder="e.g. Today I am choosing steadiness over optimization."
+                  placeholder={holiday.suggestedIntention || "e.g. Today I am choosing steadiness over optimization."}
                   className="w-full px-3 py-2 text-xs border border-stone-300 rounded-lg focus:outline-rose-500 bg-stone-50/50"
                 />
               </div>
 
               {/* Today I Am */}
               <div>
-                <label className="block text-stone-700 font-bold mb-1">
-                  Today I Am <span className="font-normal text-stone-500 font-mono-code">(stance/persona)</span>:
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-stone-700 font-bold">
+                    Today I Am <span className="font-normal text-stone-500 font-mono-code">(stance/persona)</span>:
+                  </label>
+                  {holiday.recommendedStance && (
+                    <button
+                      type="button"
+                      onClick={() => setTodayIAm(holiday.recommendedStance!)}
+                      className="text-[10px] font-mono-code font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                      title="Adopt today's unique persona stance"
+                    >
+                      ✦ Adopt Stance
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={todayIAm}
                   onChange={(e) => setTodayIAm(e.target.value)}
-                  placeholder="e.g. An unhurried architect of my own space."
+                  placeholder={holiday.recommendedStance ? `e.g. ${holiday.recommendedStance}` : "e.g. An unhurried architect of my own space."}
                   className="w-full px-3 py-2 text-xs border border-stone-300 rounded-lg focus:outline-rose-500 bg-stone-50/50"
                 />
               </div>
@@ -703,7 +744,23 @@ export const DailyOSView: React.FC<DailyOSViewProps> = ({
                       "Boredom=Death" Antidote
                     </span>
                   </div>
-                  <span className="text-[10px] font-mono-code text-stone-500">Law-Abiding · Free to $20 Max</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono-code text-stone-500">Law-Abiding · Free to $20 Max</span>
+                    {holiday.adventures.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDareIndex((prev) => (prev + 1) % holiday.adventures.length);
+                        }}
+                        className="text-[10px] font-mono-code font-bold text-sky-800 bg-sky-100 hover:bg-sky-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors flex items-center gap-1"
+                        title="View alternate micro-dare for today"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        <span>Alt Dare</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div 
@@ -719,7 +776,7 @@ export const DailyOSView: React.FC<DailyOSViewProps> = ({
                   </button>
                   <div className="text-xs">
                     <p className={`font-semibold ${microDareCompleted ? 'line-through text-stone-500' : 'text-slate-900'}`}>
-                      {holiday.adventures[0] || "Take an unscripted detour and notice three unexpected things."}
+                      {activeDare || "Take an unscripted detour and notice three unexpected things."}
                     </p>
                   </div>
                 </div>
@@ -1051,6 +1108,17 @@ export const DailyOSView: React.FC<DailyOSViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* 366-Day Holiday Almanac Modal */}
+      <HolidayAlmanacModal
+        isOpen={almanacOpen}
+        onClose={() => setAlmanacOpen(false)}
+        currentDate={currentDate}
+        onSelectDate={(newDate) => {
+          onDateChange(newDate);
+          setAlmanacOpen(false);
+        }}
+      />
     </div>
   );
 };

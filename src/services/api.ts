@@ -484,8 +484,21 @@ export const api = {
     };
   },
 
-  async transcribeAudio(audioBase64: string, mimeType: string = 'audio/webm'): Promise<{ transcript: string }> {
-    const res = await fetch('/api/ai/transcribe-audio', {
+  async transcribeAudio(
+    audioOrParams: string | { audioBase64: string; mimeType?: string },
+    optionalMime: string = 'audio/webm'
+  ): Promise<{ transcript: string; transcription: string }> {
+    let audioBase64 = '';
+    let mimeType = 'audio/webm';
+    if (typeof audioOrParams === 'string') {
+      audioBase64 = audioOrParams;
+      mimeType = optionalMime;
+    } else {
+      audioBase64 = audioOrParams.audioBase64;
+      mimeType = audioOrParams.mimeType || 'audio/webm';
+    }
+
+    const res = await fetch('/api/ai/transcribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ audioBase64, mimeType })
@@ -494,7 +507,9 @@ export const api = {
       const errorData = await res.json().catch(() => ({}));
       throw new Error(errorData.error || 'Failed to transcribe audio.');
     }
-    return await res.json();
+    const data = await res.json();
+    const text = data.transcription || data.transcript || '';
+    return { transcript: text, transcription: text };
   },
 
   async askMei(params: {
@@ -632,5 +647,148 @@ export const api = {
       sovereignty_rating: "Sovereign Runway",
       permission_slip: "You have unconditional permission to spend on physical comfort and quiet focus without justification."
     };
+  },
+
+  // ================= 3. MUSIC GENERATION (Lyria 3) =================
+  async generateMusic(params: {
+    prompt: string;
+    model?: 'lyria-3-clip-preview' | 'lyria-3-pro-preview';
+    imageBase64?: string;
+  }): Promise<{ audioUrl?: string | null; text?: string; modelUsed: string; prompt: string }> {
+    const res = await fetch('/api/ai/generate-music', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Music generation failed' }));
+      throw new Error(err.error || 'Failed to generate music');
+    }
+    return await res.json();
+  },
+
+  // ================= 4. IMAGE CREATION & EDITING (gemini-3.1-flash-image-preview) =================
+  async generateImage(params: {
+    prompt: string;
+    aspectRatio?: '1:1' | '3:4' | '4:3' | '9:16' | '16:9';
+  }): Promise<{ imageUrl: string; prompt: string; model: string }> {
+    const res = await fetch('/api/ai/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Image generation failed' }));
+      throw new Error(err.error || 'Failed to generate image');
+    }
+    return await res.json();
+  },
+
+  async editImage(params: {
+    imageBase64: string;
+    prompt: string;
+    mimeType?: string;
+  }): Promise<{ imageUrl: string; prompt: string; model: string }> {
+    const res = await fetch('/api/ai/edit-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Image edit failed' }));
+      throw new Error(err.error || 'Failed to edit image');
+    }
+    return await res.json();
+  },
+
+  // ================= 5. VEO 3 VIDEO GENERATION (veo-3.1-fast-generate-preview) =================
+  async generateVideo(params: {
+    prompt?: string;
+    imageBase64?: string;
+    aspectRatio?: '16:9' | '9:16';
+  }): Promise<{ operationName: string; prompt: string; aspectRatio: string }> {
+    const res = await fetch('/api/ai/generate-video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Video generation failed' }));
+      throw new Error(err.error || 'Failed to start video generation');
+    }
+    return await res.json();
+  },
+
+  async checkVideoStatus(operationName: string): Promise<{ done: boolean; error?: any }> {
+    const res = await fetch('/api/ai/video-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operationName })
+    });
+    if (!res.ok) throw new Error('Failed to check video status');
+    return await res.json();
+  },
+
+  async downloadVideoBlob(operationName: string): Promise<Blob> {
+    const res = await fetch('/api/ai/video-download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operationName })
+    });
+    if (!res.ok) throw new Error('Video download failed');
+    return await res.blob();
+  },
+
+  // ================= 6. SEARCH GROUNDING (gemini-3.5-flash with googleSearch) =================
+  async searchGrounding(params: {
+    query: string;
+    context?: string;
+  }): Promise<{ text: string; groundingMetadata?: any }> {
+    const res = await fetch('/api/ai/search-grounding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Search failed' }));
+      throw new Error(err.error || 'Search grounding failed');
+    }
+    return await res.json();
+  },
+
+  // ================= 7. MAPS GROUNDING (gemini-3.5-flash with googleMaps) =================
+  async mapsGrounding(params: {
+    query: string;
+    location?: string;
+  }): Promise<{ text: string; groundingMetadata?: any }> {
+    const res = await fetch('/api/ai/maps-grounding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Maps query failed' }));
+      throw new Error(err.error || 'Maps grounding failed');
+    }
+    return await res.json();
+  },
+
+  // ================= 8. MULTI-TURN GEMINI CHATBOT =================
+  async sendChatMessage(params: {
+    messages: { role: 'user' | 'model'; content: string }[];
+    modelType?: 'complex' | 'general' | 'fast';
+    role?: string;
+    personaPrompt?: string;
+  }): Promise<{ text: string; modelUsed: string; role: string }> {
+    const res = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Chat failed' }));
+      throw new Error(err.error || 'Chat request failed');
+    }
+    return await res.json();
   }
 };

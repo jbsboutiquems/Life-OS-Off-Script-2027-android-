@@ -19,8 +19,8 @@ import {
 } from 'lucide-react';
 
 interface AndroidBottomNavProps {
-  activeTab: 'cover' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes' | 'frontmatter';
-  setActiveTab: (tab: 'cover' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes' | 'frontmatter') => void;
+  activeTab: 'cover' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes' | 'frontmatter' | 'aistudio';
+  setActiveTab: (tab: 'cover' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes' | 'frontmatter' | 'aistudio') => void;
   onOpenStickers: () => void;
   onOpenShare: () => void;
   onOpenPackage?: () => void;
@@ -146,6 +146,19 @@ export const AndroidBottomNav: React.FC<AndroidBottomNavProps> = ({
               >
                 <Award className="w-5 h-5 text-purple-600" />
                 <span className="text-[11px] font-mono-code font-medium">12 Themes</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTabSelect('aistudio')}
+                className={`p-3 rounded-xl flex flex-col items-center justify-center space-y-1.5 border transition-all text-center ${
+                  activeTab === 'aistudio'
+                    ? 'bg-rose-50 border-rose-500 text-rose-950 font-bold shadow-2xs'
+                    : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-stone-100'
+                }`}
+              >
+                <Sparkles className="w-5 h-5 text-rose-600" />
+                <span className="text-[11px] font-mono-code font-medium">AI Studio</span>
               </button>
 
               <button

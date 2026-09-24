@@ -1,0 +1,156 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile containing identity settings, chaos values, and word of the year",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "chaos_name": { "type": "string" },
+        "word_of_the_year": { "type": "string" },
+        "slogan": { "type": "string" },
+        "chaos_mantra": { "type": "string" },
+        "what_done_pretending": { "type": "string" },
+        "what_ready_to_admit": { "type": "string" },
+        "relationship_with_chaos": { "type": "string" },
+        "permission_granted": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "chaos_name", "word_of_the_year"]
+    },
+    "DailyEntry": {
+      "title": "DailyEntry",
+      "description": "Daily flight log entry for a specific calendar date",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "entry_date": { "type": "string" },
+        "morning_intention": { "type": "string" },
+        "today_i_am": { "type": "string" },
+        "midday_checkin": { "type": "string" },
+        "evening_notes": { "type": "string" },
+        "chaos_score": { "type": "number" },
+        "micro_dare_completed": { "type": "boolean" },
+        "micro_dare_notes": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "userId", "entry_date"]
+    },
+    "PersonalitySnapshot": {
+      "title": "PersonalitySnapshot",
+      "description": "Big 5 psychological telemetry snapshot calculated from daily reflection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "entry_id": { "type": "string" },
+        "snapshot_date": { "type": "string" },
+        "openness": { "type": "number" },
+        "conscientiousness": { "type": "number" },
+        "extraversion": { "type": "number" },
+        "agreeableness": { "type": "number" },
+        "neuroticism": { "type": "number" },
+        "detected_mood": { "type": "string" },
+        "burnout_risk": { "type": "string" },
+        "self_sabotage_alert": { "type": "string" },
+        "contradiction_callout": { "type": "string" },
+        "ai_feedback": { "type": "string" },
+        "micro_dare": { "type": "string" }
+      },
+      "required": ["id", "userId", "snapshot_date"]
+    },
+    "Goal": {
+      "title": "Goal",
+      "description": "Annual Big 6 goal record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "domain": { "type": "string" },
+        "category": { "type": "string" },
+        "progress": { "type": "number" },
+        "quarterly_target": { "type": "string" },
+        "provocation": { "type": "string" },
+        "color": { "type": "string" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "AntiGoal": {
+      "title": "AntiGoal",
+      "description": "Protective boundary and anti-goal commitment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "reason": { "type": "string" },
+        "defense_protocol": { "type": "string" },
+        "is_completed": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "MediaGeneration": {
+      "title": "MediaGeneration",
+      "description": "Generated AI media track (music, image, or video)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "prompt": { "type": "string" },
+        "resultUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "prompt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Multi-turn Gemini chat message history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "role": { "type": "string" },
+        "modelUsed": { "type": "string" },
+        "content": { "type": "string" },
+        "persona": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "role", "content"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Stores user settings, chaos identity, and values"
+    },
+    "/users/{userId}/dailyEntries/{entryId}": {
+      "schema": "DailyEntry",
+      "description": "Stores user daily logs and reflections"
+    },
+    "/users/{userId}/personalitySnapshots/{snapshotId}": {
+      "schema": "PersonalitySnapshot",
+      "description": "Stores user diagnostic history and telemetry"
+    },
+    "/users/{userId}/goals/{goalId}": {
+      "schema": "Goal",
+      "description": "Stores Big 6 Goals per user"
+    },
+    "/users/{userId}/antiGoals/{antiGoalId}": {
+      "schema": "AntiGoal",
+      "description": "Stores user protective anti-goals"
+    },
+    "/users/{userId}/mediaGenerations/{mediaId}": {
+      "schema": "MediaGeneration",
+      "description": "Stores generated music, image, or video creations"
+    },
+    "/users/{userId}/chatMessages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Stores multi-turn chat threads per user"
+    }
+  }
+}

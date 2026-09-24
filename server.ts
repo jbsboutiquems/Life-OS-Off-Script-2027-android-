@@ -1,7 +1,9 @@
 import express from "express";
+import http from "http";
 import path from "path";
 import fs from "fs";
-import { GoogleGenAI, Type } from "@google/genai";
+import { WebSocketServer } from "ws";
+import { GoogleGenAI, Type, GenerateVideosOperation, Modality } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -1135,8 +1137,455 @@ Return JSON:
   });
 });
 
+// ================= 3. MUSIC GENERATION (Lyria 3) =================
+// Supports lyria-3-clip-preview (up to 30s clips) and lyria-3-pro-preview (full tracks)
+app.post("/api/ai/generate-music", async (req, res) => {
+  const { prompt, model = "lyria-3-clip-preview", imageBase64 } = req.body;
+  const ai = getGeminiClient();
+  if (!ai) {
+    return res.status(500).json({ error: "Gemini API key is not configured" });
+  }
+
+  const selectedModel = model === "lyria-3-pro-preview" ? "lyria-3-pro-preview" : "lyria-3-clip-preview";
+
+  try {
+    const parts: any[] = [
+      { text: prompt || "A resonant ambient lo-fi soundscape for unhurried morning journaling, subtle analog synth textures and warm vinyl warmth." }
+    ];
+
+    if (imageBase64) {
+      const cleanData = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+      parts.push({
+        inlineData: {
+          mimeType: "image/jpeg",
+          data: cleanData
+        }
+      });
+    }
+
+    const response = await ai.models.generateContent({
+      model: selectedModel,
+      contents: { parts }
+    });
+
+    let audioData: string | null = null;
+    let mimeType = "audio/mp3";
+
+    for (const candidate of response.candidates || []) {
+      for (const part of candidate.content?.parts || []) {
+        if (part.inlineData?.data) {
+          audioData = part.inlineData.data;
+          mimeType = part.inlineData.mimeType || "audio/mp3";
+          break;
+        }
+      }
+      if (audioData) break;
+    }
+
+    if (audioData) {
+      return res.json({
+        audioUrl: `data:${mimeType};base64,${audioData}`,
+        modelUsed: selectedModel,
+        prompt
+      });
+    }
+
+    return res.json({
+      text: response.text || "Music composition generated.",
+      modelUsed: selectedModel,
+      prompt,
+      audioUrl: null
+    });
+  } catch (err: any) {
+    console.error("Music generation API error:", err);
+    res.status(500).json({ error: err.message || "Failed to generate music" });
+  }
+});
+
+// ================= 4. IMAGE CREATION & EDITING (gemini-3.1-flash-image-preview) =================
+app.post("/api/ai/generate-image", async (req, res) => {
+  const { prompt, aspectRatio = "1:1" } = req.body;
+  const ai = getGeminiClient();
+  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-image-preview",
+      contents: {
+        parts: [{ text: prompt }]
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: aspectRatio as any
+        }
+      }
+    });
+
+    let imageUrl: string | null = null;
+    for (const candidate of response.candidates || []) {
+      for (const part of candidate.content?.parts || []) {
+        if (part.inlineData?.data) {
+          const mime = part.inlineData.mimeType || "image/png";
+          imageUrl = `data:${mime};base64,${part.inlineData.data}`;
+          break;
+        }
+      }
+      if (imageUrl) break;
+    }
+
+    if (imageUrl) {
+      return res.json({ imageUrl, prompt, model: "gemini-3.1-flash-image-preview" });
+    }
+
+    return res.status(400).json({ error: "No image generated", text: response.text });
+  } catch (err: any) {
+    console.error("Image generation API error:", err);
+    res.status(500).json({ error: err.message || "Failed to create image" });
+  }
+});
+
+app.post("/api/ai/edit-image", async (req, res) => {
+  const { imageBase64, prompt, mimeType = "image/png" } = req.body;
+  const ai = getGeminiClient();
+  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
+
+  try {
+    const cleanData = imageBase64.replace(/^data:[^;]+;base64,/, "");
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-image-preview",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: cleanData,
+              mimeType
+            }
+          },
+          { text: prompt }
+        ]
+      }
+    });
+
+    let imageUrl: string | null = null;
+    for (const candidate of response.candidates || []) {
+      for (const part of candidate.content?.parts || []) {
+        if (part.inlineData?.data) {
+          const mime = part.inlineData.mimeType || "image/png";
+          imageUrl = `data:${mime};base64,${part.inlineData.data}`;
+          break;
+        }
+      }
+      if (imageUrl) break;
+    }
+
+    if (imageUrl) {
+      return res.json({ imageUrl, prompt, model: "gemini-3.1-flash-image-preview" });
+    }
+
+    return res.status(400).json({ error: "No edited image generated", text: response.text });
+  } catch (err: any) {
+    console.error("Image edit API error:", err);
+    res.status(500).json({ error: err.message || "Failed to edit image" });
+  }
+});
+
+// ================= 5. VEO 3 VIDEO GENERATION (veo-3.1-fast-generate-preview) =================
+app.post("/api/ai/generate-video", async (req, res) => {
+  const { prompt, imageBase64, mimeType = "image/png", aspectRatio = "16:9" } = req.body;
+  const ai = getGeminiClient();
+  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
+
+  const validAspectRatio = aspectRatio === "9:16" ? "9:16" : "16:9";
+
+  try {
+    const payload: any = {
+      model: "veo-3.1-fast-generate-preview",
+      prompt: prompt || "A cinematic atmospheric motion sequence of morning sunlight breaking through city fog",
+      config: {
+        numberOfVideos: 1,
+        resolution: "720p",
+        aspectRatio: validAspectRatio
+      }
+    };
+
+    if (imageBase64) {
+      const cleanData = imageBase64.replace(/^data:[^;]+;base64,/, "");
+      payload.image = {
+        imageBytes: cleanData,
+        mimeType
+      };
+    }
+
+    const operation = await ai.models.generateVideos(payload);
+    return res.json({
+      operationName: operation.name,
+      prompt,
+      aspectRatio: validAspectRatio
+    });
+  } catch (err: any) {
+    console.error("Veo video generation error:", err);
+    res.status(500).json({ error: err.message || "Failed to generate video" });
+  }
+});
+
+app.post("/api/ai/video-status", async (req, res) => {
+  const { operationName } = req.body;
+  const ai = getGeminiClient();
+  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
+
+  try {
+    const op = new GenerateVideosOperation();
+    op.name = operationName;
+    const updated = await ai.operations.getVideosOperation({ operation: op });
+    return res.json({ done: Boolean(updated.done), error: updated.error });
+  } catch (err: any) {
+    console.error("Video status polling error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/ai/video-download", async (req, res) => {
+  const { operationName } = req.body;
+  const ai = getGeminiClient();
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!ai || !apiKey) return res.status(500).json({ error: "Gemini API key missing" });
+
+  try {
+    const op = new GenerateVideosOperation();
+    op.name = operationName;
+    const updated = await ai.operations.getVideosOperation({ operation: op });
+    const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
+    if (!uri) {
+      return res.status(404).json({ error: "Video URI not found or video still processing" });
+    }
+    const videoRes = await fetch(uri, {
+      headers: { 'x-goog-api-key': apiKey }
+    });
+    res.setHeader('Content-Type', 'video/mp4');
+    const buffer = await videoRes.arrayBuffer();
+    return res.send(Buffer.from(buffer));
+  } catch (err: any) {
+    console.error("Video download streaming error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= 6. SEARCH GROUNDING (gemini-3.5-flash with googleSearch) =================
+app.post("/api/ai/search-grounding", async (req, res) => {
+  const { query: userQuery, context = "" } = req.body;
+  const ai = getGeminiClient();
+  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
+
+  try {
+    const prompt = context
+      ? `User Operational Context: ${context}\n\nSearch Query & Real-World Truth Check: ${userQuery}`
+      : `Search Query & Real-World Truth Check: ${userQuery}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }]
+      }
+    });
+
+    const text = response.text || "";
+    const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+    return res.json({ text, groundingMetadata });
+  } catch (err: any) {
+    console.error("Search grounding error:", err);
+    res.status(500).json({ error: err.message || "Failed to search" });
+  }
+});
+
+// ================= 7. MAPS GROUNDING (gemini-3.5-flash with googleMaps) =================
+app.post("/api/ai/maps-grounding", async (req, res) => {
+  const { query: userQuery, location = "" } = req.body;
+  const ai = getGeminiClient();
+  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
+
+  try {
+    const prompt = location
+      ? `Current Location or City: ${location}\n\nSanctuary & Micro-Adventure Request: ${userQuery}\n\nFind real, offbeat sanctuaries, quiet reading spots, public parks, or independent cafes with exact names and location context.`
+      : `Sanctuary & Micro-Adventure Request: ${userQuery}\n\nFind real, offbeat sanctuaries, quiet reading spots, public parks, or independent cafes with exact names and location context.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        tools: [{ googleMaps: {} }]
+      }
+    });
+
+    const text = response.text || "";
+    const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+    return res.json({ text, groundingMetadata });
+  } catch (err: any) {
+    console.error("Maps grounding error:", err);
+    res.status(500).json({ error: err.message || "Failed to find places" });
+  }
+});
+
+// ================= 8. MULTI-TURN GEMINI CHATBOT =================
+// Supports gemini-3.1-pro-preview (complex tasks), gemini-3.5-flash (general tasks), gemini-3.1-flash-lite (fast tasks)
+app.post("/api/ai/chat", async (req, res) => {
+  const {
+    messages = [],
+    modelType = "general",
+    role = "Mei Sassy Mirror",
+    personaPrompt = ""
+  } = req.body;
+
+  const ai = getGeminiClient();
+  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
+
+  try {
+    let modelName = "gemini-3.5-flash";
+    if (modelType === "complex") {
+      modelName = "gemini-3.1-pro-preview";
+    } else if (modelType === "fast") {
+      modelName = "gemini-3.1-flash-lite";
+    }
+
+    const defaultSystemInstruction = `You are ${role}, a high-perceptive conversational advisor inside "Life OS: Off*Script 2027 (Chaos Year Edition)".
+Your core rule: "Boredom=Death".
+Philosophy: Anti-hustle, zero toxic positivity, psychological sovereignty, permission to leave the edges ragged, allergic to corporate platitudes.
+Be direct, deeply perceptive, witty, and grounded. Call out performative overwork while offering practical refuge.`;
+
+    const systemInstruction = personaPrompt || defaultSystemInstruction;
+
+    const contents = (messages as any[]).map((msg) => ({
+      role: msg.role === "model" ? "model" : "user",
+      parts: [{ text: msg.content }]
+    }));
+
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents,
+      config: {
+        systemInstruction
+      }
+    });
+
+    return res.json({
+      text: response.text || "",
+      modelUsed: modelName,
+      role
+    });
+  } catch (err: any) {
+    console.error("Chat API error:", err);
+    res.status(500).json({ error: err.message || "Chat failed" });
+  }
+});
+
+// ================= 9. AUDIO TRANSCRIPTION (gemini-3.5-transcribe) =================
+const handleTranscribe = async (req: express.Request, res: express.Response) => {
+  const { audioBase64, mimeType = "audio/webm" } = req.body;
+  const ai = getGeminiClient();
+  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
+
+  try {
+    const cleanData = audioBase64.replace(/^data:[^;]+;base64,/, "");
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-transcribe",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType,
+              data: cleanData
+            }
+          },
+          {
+            text: "Transcribe this audio verbatim. Capture the exact spoken words without commentary or summarization."
+          }
+        ]
+      }
+    });
+
+    const text = response.text || "";
+    return res.json({ transcription: text, transcript: text });
+  } catch (err: any) {
+    console.error("Audio transcription error:", err);
+    res.status(500).json({ error: err.message || "Transcription failed" });
+  }
+};
+
+app.post("/api/ai/transcribe", handleTranscribe);
+app.post("/api/ai/transcribe-audio", handleTranscribe);
+
+// ================= 10. LIVE API REAL-TIME VOICE WEBSOCKET (gemini-3.8-live) =================
+function setupLiveWebSocket(wss: WebSocketServer) {
+  wss.on("connection", async (clientWs) => {
+    console.log("[Live API] Voice client connected to /live");
+    const ai = getGeminiClient();
+    if (!ai) {
+      clientWs.send(JSON.stringify({ error: "Gemini API key is not configured" }));
+      clientWs.close();
+      return;
+    }
+
+    try {
+      const session = await ai.live.connect({
+        model: "gemini-3.8-live",
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
+          },
+          systemInstruction: "You are Mei, the perceptive, witty, and unapologetic voice inside 2027 Life OS. You provide direct psychological clarity and zero toxic positivity in real-time spoken voice conversations."
+        },
+        callbacks: {
+          onmessage: (message: any) => {
+            const audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+            const text = message.serverContent?.modelTurn?.parts?.[0]?.text;
+            if (audio) {
+              clientWs.send(JSON.stringify({ audio, text }));
+            }
+            if (message.serverContent?.interrupted) {
+              clientWs.send(JSON.stringify({ interrupted: true }));
+            }
+          },
+          onclose: () => {
+            try { clientWs.close(); } catch (e) {}
+          }
+        }
+      });
+
+      clientWs.on("message", (data) => {
+        try {
+          const parsed = JSON.parse(data.toString());
+          if (parsed.audio) {
+            session.sendRealtimeInput({
+              audio: { data: parsed.audio, mimeType: "audio/pcm;rate=16000" }
+            });
+          } else if (parsed.text) {
+            session.sendRealtimeInput({
+              text: parsed.text
+            });
+          }
+        } catch (err) {
+          console.error("Error processing client live input:", err);
+        }
+      });
+
+      clientWs.on("close", () => {
+        try { session.close(); } catch (e) {}
+      });
+    } catch (err: any) {
+      console.error("Error connecting to Gemini Live API:", err);
+      clientWs.send(JSON.stringify({ error: err.message }));
+    }
+  });
+}
+
 // Vite middleware in development & static serve in production
 async function setupViteAndListen() {
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ server: httpServer, path: "/live" });
+
+  setupLiveWebSocket(wss);
+
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
@@ -1152,8 +1601,8 @@ async function setupViteAndListen() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`2027 Life OS Server running on port ${PORT}`);
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    console.log(`2027 Life OS Server running on port ${PORT} with Gemini Live WebSocket on /live`);
   });
 }
 

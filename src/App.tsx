@@ -19,6 +19,18 @@ import { AndroidInstallBanner } from './components/AndroidInstallBanner';
 import { AndroidBottomNav } from './components/AndroidBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { exportDailyLogPdf } from './services/pdf';
+import { AIStudioHubView } from './components/AIStudioHubView';
+import {
+  signInWithGoogle,
+  logOut,
+  subscribeToAuth,
+  validateFirestoreConnection,
+  syncUserProfileToFirestore,
+  fetchUserProfileFromFirestore,
+  syncDailyEntryToFirestore,
+  fetchDailyEntryFromFirestore
+} from './lib/firebase';
+import { User as FirebaseUser } from 'firebase/auth';
 import {
   Compass,
   Sparkles,
@@ -32,19 +44,21 @@ import {
   CheckCircle,
   Activity,
   Layers,
-  Download
+  Download,
+  Radio
 } from 'lucide-react';
 
 export default function App() {
   const [currentDate, setCurrentDate] = useState<string>(() => {
     return new Date().toISOString().split('T')[0];
   });
-  const [activeTab, setActiveTab] = useState<'cover' | 'frontmatter' | 'daily' | 'trendline' | 'diagnostic' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes'>('daily');
+  const [activeTab, setActiveTab] = useState<'cover' | 'frontmatter' | 'daily' | 'trendline' | 'diagnostic' | 'aistudio' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes'>('daily');
   const [stickersModalOpen, setStickersModalOpen] = useState(false);
   const [packageModalOpen, setPackageModalOpen] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareContext, setShareContext] = useState<ShareContextType>('daily');
   const [allEntries, setAllEntries] = useState<DailyEntry[]>([]);
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
 
   // Core data states
   const [user, setUser] = useState<UserProfile>({
@@ -137,6 +151,45 @@ export default function App() {
     loadData();
   }, [currentDate]);
 
+  // Firebase Auth State & Firestore Sync Listener
+  useEffect(() => {
+    validateFirestoreConnection();
+    const unsubscribe = subscribeToAuth(async (fbUser) => {
+      setCurrentUser(fbUser);
+      if (fbUser) {
+        showToast(`Connected to Firebase: ${fbUser.displayName || fbUser.email}`);
+        const cloudUser = await fetchUserProfileFromFirestore(fbUser.uid);
+        if (cloudUser) {
+          setUser(cloudUser);
+        } else {
+          syncUserProfileToFirestore(fbUser.uid, user);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSignInGoogle = async () => {
+    try {
+      const fbUser = await signInWithGoogle();
+      if (fbUser) {
+        showToast(`Signed in with Google! Synced with Firestore.`);
+      }
+    } catch (err: any) {
+      showToast(`Google Sign-In error: ${err.message}`);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await logOut();
+      setCurrentUser(null);
+      showToast("Signed out of Google account.");
+    } catch (err: any) {
+      showToast(`Sign out error: ${err.message}`);
+    }
+  };
+
   // Handle Saving Daily Entry
   const handleSaveDailyEntry = async (updates: Partial<DailyEntry>) => {
     const updatedEntry: DailyEntry = {
@@ -160,6 +213,9 @@ export default function App() {
 
     try {
       await api.saveDailyEntry(updatedEntry);
+      if (currentUser) {
+        syncDailyEntryToFirestore(currentUser.uid, updatedEntry);
+      }
       showToast("Daily Flight Log saved.");
     } catch (err) {
       showToast("Saved locally.");
@@ -287,6 +343,7 @@ export default function App() {
     { id: 'daily', label: 'Daily OS (Launch · Orbit · Landing)', icon: Compass, badge: 'Core' },
     { id: 'trendline', label: 'Chaos Trendline (30-Day)', icon: Activity, badge: 'Analysis' },
     { id: 'diagnostic', label: 'Mei Diagnostic & Sassy Mirror', icon: Sparkles, badge: 'AI' },
+    { id: 'aistudio', label: 'Multimodal AI Studio', icon: Radio, badge: 'Studio' },
     { id: 'goals', label: 'Big 6 Goals OS', icon: Flame, badge: `${goals.length}/6` },
     { id: 'weekly', label: 'Weekly Flight Debrief', icon: BookOpen, badge: 'Review' },
     { id: 'money', label: 'Monthly Money Map', icon: DollarSign, badge: 'Finance' },
@@ -313,6 +370,9 @@ export default function App() {
         onRefreshData={loadData}
         onExportPdf={handleExportPdf}
         isDiagnosing={isDiagnosing}
+        currentUser={currentUser}
+        onSignInGoogle={handleSignInGoogle}
+        onSignOut={handleSignOut}
       />
 
       {/* Main App Layout: Sidebar + Canvas Content Area */}
@@ -546,6 +606,16 @@ export default function App() {
                 </button>
               </div>
             </div>
+          )}
+
+          {activeTab === 'aistudio' && (
+            <AIStudioHubView
+              user={user}
+              dailyEntry={dailyEntry}
+              onUpdateDailyEntry={handleSaveDailyEntry}
+              currentUser={currentUser}
+              onShowToast={showToast}
+            />
           )}
 
           {activeTab === 'goals' && (

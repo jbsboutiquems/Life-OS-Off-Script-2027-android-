@@ -1,1 +1,27 @@
-
+- name: Publish Android Release
+  # You may pin to the exact commit or the version.
+  # uses: deep-rent/publish-android-release@1ddd77852e22eef2e5f21b82ffc1b5c1ca712805
+  uses: deep-rent/publish-android-release@v1.0.1
+  with:
+    # Path to the root Android project directory containing the gradlew executable.
+    project-directory: # default is .
+    # Base64-encoded string representation of your Android release keystore (e.g., .jks or .keystore) file.
+    keystore: 
+    # The password required to unlock the Android keystore.
+    keystore-password: 
+    # The alias of the signing key stored within the keystore.
+    key-alias: 
+    # The password for the specific signing key alias. Defaults to the keystore password.
+    key-password: # optional
+    # The plain text JSON contents of the Google Cloud Service Account used to authenticate with the Google Play Developer API.
+    service-account: 
+    # The application ID (package name) of the Android app (e.g., com.example.app).
+    package-name: 
+    # The relative path to the generated Android App Bundle (AAB) file.
+    release-file: # default is app/build/outputs/bundle/release/app-release.aab
+    # The relative path to the generated ProGuard/R8 mapping.txt file.
+    mapping-file: # default is app/build/outputs/mapping/release/mapping.txt
+    # The Google Play track to publish the release to. Valid options are: internal, alpha, beta, production.
+    track: # default is internal
+    # The status of the release. Valid options are: completed, draft, halted, inProgress.
+    status: # default is completed

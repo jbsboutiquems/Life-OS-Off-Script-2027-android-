@@ -15,7 +15,9 @@ import {
   Mic,
   Layers,
   Award,
-  Download
+  Download,
+  Sun,
+  Moon
 } from 'lucide-react';
 
 interface AndroidBottomNavProps {
@@ -25,6 +27,8 @@ interface AndroidBottomNavProps {
   onOpenShare: () => void;
   onOpenPackage?: () => void;
   onOpenAudioMemo?: () => void;
+  currentTheme?: 'cream' | 'midnight';
+  onToggleTheme?: () => void;
 }
 
 export const AndroidBottomNav: React.FC<AndroidBottomNavProps> = ({
@@ -34,6 +38,8 @@ export const AndroidBottomNav: React.FC<AndroidBottomNavProps> = ({
   onOpenShare,
   onOpenPackage,
   onOpenAudioMemo,
+  currentTheme = 'cream',
+  onToggleTheme
 }) => {
   const [showDrawer, setShowDrawer] = useState(false);
 
@@ -209,6 +215,31 @@ export const AndroidBottomNav: React.FC<AndroidBottomNavProps> = ({
                 >
                   <Download className="w-5 h-5 text-rose-400" />
                   <span className="text-[11px] font-mono-code font-bold">Package App</span>
+                </button>
+              )}
+
+              {onToggleTheme && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDrawer(false);
+                    onToggleTheme();
+                  }}
+                  className={`p-3 rounded-xl flex flex-col items-center justify-center space-y-1.5 border transition-all text-center ${
+                    currentTheme === 'midnight'
+                      ? 'bg-amber-500/20 border-amber-400 text-amber-200'
+                      : 'bg-stone-100 border-stone-300 text-stone-800 hover:bg-stone-200'
+                  }`}
+                  title="Toggle between Cream Canvas and Midnight Focus"
+                >
+                  {currentTheme === 'midnight' ? (
+                    <Sun className="w-5 h-5 text-amber-400" />
+                  ) : (
+                    <Moon className="w-5 h-5 text-indigo-600 fill-indigo-600" />
+                  )}
+                  <span className="text-[11px] font-mono-code font-bold">
+                    {currentTheme === 'midnight' ? 'Cream Canvas' : 'Midnight Focus'}
+                  </span>
                 </button>
               )}
             </div>

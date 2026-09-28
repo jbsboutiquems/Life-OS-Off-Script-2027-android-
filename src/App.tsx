@@ -45,7 +45,9 @@ import {
   Activity,
   Layers,
   Download,
-  Radio
+  Radio,
+  Sun,
+  Moon
 } from 'lucide-react';
 
 export default function App() {
@@ -59,6 +61,40 @@ export default function App() {
   const [shareContext, setShareContext] = useState<ShareContextType>('daily');
   const [allEntries, setAllEntries] = useState<DailyEntry[]>([]);
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+
+  // Theme State: 'cream' (Default Cream Canvas) vs 'midnight' (Midnight Focus Dark Mode)
+  const [currentTheme, setCurrentTheme] = useState<'cream' | 'midnight'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('lifeos_theme');
+      if (saved === 'midnight') return 'midnight';
+    }
+    return 'cream';
+  });
+
+  useEffect(() => {
+    if (currentTheme === 'midnight') {
+      document.documentElement.classList.add('theme-midnight', 'dark');
+      document.body.classList.add('theme-midnight', 'dark');
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0b0f19');
+    } else {
+      document.documentElement.classList.remove('theme-midnight', 'dark');
+      document.body.classList.remove('theme-midnight', 'dark');
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0f172a');
+    }
+    localStorage.setItem('lifeos_theme', currentTheme);
+  }, [currentTheme]);
+
+  const handleToggleTheme = () => {
+    setCurrentTheme(prev => {
+      const next = prev === 'cream' ? 'midnight' : 'cream';
+      showToast(
+        next === 'midnight'
+          ? '✦ Switched to Midnight Focus (Late-Night High Contrast Dark Mode)'
+          : '☀ Switched to Cream Canvas (Default Warm Paper Mode)'
+      );
+      return next;
+    });
+  };
 
   // Core data states
   const [user, setUser] = useState<UserProfile>({
@@ -373,6 +409,8 @@ export default function App() {
         currentUser={currentUser}
         onSignInGoogle={handleSignInGoogle}
         onSignOut={handleSignOut}
+        currentTheme={currentTheme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Main App Layout: Sidebar + Canvas Content Area */}
@@ -465,6 +503,57 @@ export default function App() {
             </button>
           </div>
 
+          {/* Theme & Lighting Switcher: Cream Canvas vs. Midnight Focus */}
+          <div className="bg-white border border-stone-300 rounded-2xl p-3.5 shadow-xs space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono-code font-bold uppercase text-stone-500 tracking-wider">
+                Theme & Lighting
+              </span>
+              {currentTheme === 'midnight' ? (
+                <Moon className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+              ) : (
+                <Sun className="w-3.5 h-3.5 text-amber-600" />
+              )}
+            </div>
+            
+            <p className="text-[11px] text-stone-600 leading-snug">
+              {currentTheme === 'midnight'
+                ? 'Midnight Focus active: deep high-contrast OLED dark mode for late-night journaling.'
+                : 'Cream Canvas active: warm tactile paper finish with editorial typography.'}
+            </p>
+
+            <div className="grid grid-cols-2 gap-1.5 p-1 bg-stone-100 rounded-xl">
+              <button
+                type="button"
+                id="sidebar-cream-theme-btn"
+                onClick={() => currentTheme !== 'cream' && handleToggleTheme()}
+                className={`py-1.5 px-2 rounded-lg text-xs font-mono-code font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  currentTheme === 'cream'
+                    ? 'bg-white text-stone-900 shadow-xs border border-stone-200'
+                    : 'text-stone-500 hover:text-stone-800'
+                }`}
+                title="Switch to default Cream Canvas theme"
+              >
+                <Sun className="w-3.5 h-3.5 text-amber-600" />
+                <span>Cream</span>
+              </button>
+              <button
+                type="button"
+                id="sidebar-midnight-theme-btn"
+                onClick={() => currentTheme !== 'midnight' && handleToggleTheme()}
+                className={`py-1.5 px-2 rounded-lg text-xs font-mono-code font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  currentTheme === 'midnight'
+                    ? 'bg-slate-900 text-amber-300 shadow-xs border border-slate-700'
+                    : 'text-stone-500 hover:text-stone-800'
+                }`}
+                title="Switch to Midnight Focus high-contrast dark theme"
+              >
+                <Moon className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                <span>Midnight</span>
+              </button>
+            </div>
+          </div>
+
           {/* Package App & Sovereignty Launcher */}
           <div className="bg-slate-900 text-stone-200 border border-stone-800 rounded-2xl p-4 shadow-sm space-y-2">
             <div className="flex items-center justify-between">
@@ -526,6 +615,11 @@ export default function App() {
                 onDateChange={(d) => setCurrentDate(d)}
                 onOpenStickers={() => setStickersModalOpen(true)}
                 onOpenShare={(ctx) => handleOpenShare(ctx || 'daily')}
+                goals={goals}
+                onNavigateToGoals={() => setActiveTab('goals')}
+                allEntries={allEntries}
+                currentTheme={currentTheme}
+                onToggleTheme={handleToggleTheme}
               />
 
               {/* Mei Diagnostic Card right below */}
@@ -736,6 +830,8 @@ export default function App() {
         onOpenStickers={() => setStickersModalOpen(true)}
         onOpenShare={() => handleOpenShare('daily')}
         onOpenPackage={() => setPackageModalOpen(true)}
+        currentTheme={currentTheme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* FOOTER */}

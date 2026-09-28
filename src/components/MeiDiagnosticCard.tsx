@@ -467,9 +467,10 @@ export const MeiDiagnosticCard: React.FC<MeiDiagnosticCardProps> = ({
             {/* Quick Starter Chips */}
             <div className="p-2.5 bg-stone-950 border-b border-stone-800/80 flex flex-wrap gap-1.5 overflow-x-auto text-[11px] font-mono-code">
               {[
+                "Ask a piercing follow-up on my evening field notes",
+                "Give me a 12-hour radio silence reality check",
                 "Why am I self-sabotaging my rest?",
                 "Call out my biggest blind spot today",
-                "Give me an unscripted micro-dare",
                 "Am I over-optimizing or making progress?"
               ].map((chip, idx) => (
                 <button

@@ -11,7 +11,8 @@ import {
   GoalStressTestResult,
   SuggestedAntiGoal,
   ForensicDebriefResult,
-  FinancialAuditResult
+  FinancialAuditResult,
+  CompanionCheckInResult
 } from '../types';
 
 const defaultAntiGoals: AntiGoal[] = [
@@ -532,6 +533,55 @@ export const api = {
     return {
       reply: "You're trying to analyze the problem instead of feeling the friction. Stop seeking a cleaner framework and go execute the uncomfortable boundary you've been putting off."
     };
+  },
+
+  async getCompanionCheckIn(params: {
+    evening_notes?: string;
+    hours_since_last_entry?: number;
+    last_entry_date?: string;
+    user_profile?: UserProfile | null;
+    force_type?: 'field_notes_followup' | 'inactivity_checkin';
+  }): Promise<CompanionCheckInResult> {
+    try {
+      const res = await fetch('/api/ai/companion-checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Companion check-in API error, using client fallback', e);
+    }
+
+    const isFollowup = params.force_type === 'field_notes_followup' ||
+      (!params.force_type && params.evening_notes && params.evening_notes.trim().length > 10);
+
+    if (isFollowup) {
+      return {
+        trigger_type: 'field_notes_followup',
+        witty_quip: "Mei's Lens on your Evening Field Notes",
+        message: "You wrote that you're exhausted, but your notes reveal you spent half your afternoon defending boundaries you never actually spoke out loud.",
+        follow_up_question: "Who is the imaginary judge you are still trying to impress with this performance?",
+        suggested_replies: [
+          "My past self who thought exhaustion was proof of virtue.",
+          "Someone whose email I still haven't answered.",
+          "Nobody. I just forgot that rest is free."
+        ]
+      };
+    } else {
+      return {
+        trigger_type: 'inactivity_checkin',
+        witty_quip: "12-Hour Radio Silence Ping",
+        message: `Over 12 hours since your last flight log transmission.`,
+        follow_up_question: "Did you surrender to the mundane matrix, or did you unplug and forget the log exists because life got interesting?",
+        suggested_replies: [
+          "Trapped in domestic busywork and need a reboot.",
+          "Off-grid and genuinely thriving.",
+          "Stuck in a doomscroll loop, pull me out."
+        ],
+        hours_inactive: Math.round(params.hours_since_last_entry || 14)
+      };
+    }
   },
 
   async stressTestGoal(params: {

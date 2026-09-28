@@ -1,6 +1,6 @@
 import React from 'react';
 import { UserProfile } from '../types';
-import { Sparkles, Compass, Flame, ShieldAlert, BookOpen, DollarSign, Award, Smile, RefreshCw, Activity, Image as ImageIcon, Share2, Download, Layers, FileText, LogIn, LogOut, Radio, User as UserIcon } from 'lucide-react';
+import { Sparkles, Compass, Flame, ShieldAlert, BookOpen, DollarSign, Award, Smile, RefreshCw, Activity, Image as ImageIcon, Share2, Download, Layers, FileText, LogIn, LogOut, Radio, User as UserIcon, Sun, Moon } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { User as FirebaseUser } from 'firebase/auth';
 
@@ -21,6 +21,8 @@ interface HeaderProps {
   currentUser?: FirebaseUser | null;
   onSignInGoogle?: () => void;
   onSignOut?: () => void;
+  currentTheme?: 'cream' | 'midnight';
+  onToggleTheme?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -37,7 +39,9 @@ export const Header: React.FC<HeaderProps> = ({
   isDiagnosing = false,
   currentUser,
   onSignInGoogle,
-  onSignOut
+  onSignOut,
+  currentTheme = 'cream',
+  onToggleTheme
 }) => {
   return (
     <header className="border-b border-stone-300 bg-[#faf7f0]/95 backdrop-blur-md sticky top-0 z-40 shadow-xs print:hidden">
@@ -140,6 +144,37 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>Google Sign-In</span>
                 </button>
               )
+            )}
+
+            {/* Theme Toggle: Cream Canvas <-> Midnight Focus */}
+            {onToggleTheme && (
+              <button
+                id="header-theme-toggle-btn"
+                type="button"
+                onClick={onToggleTheme}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg shadow-xs transition-all cursor-pointer border ${
+                  currentTheme === 'midnight'
+                    ? 'bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 border-amber-400/60 ring-1 ring-amber-400/40'
+                    : 'bg-white hover:bg-stone-100 text-slate-800 border-stone-300 hover:border-stone-400'
+                }`}
+                title={
+                  currentTheme === 'midnight'
+                    ? "Active: Midnight Focus (High-contrast dark mode). Click to switch to Cream Canvas."
+                    : "Active: Cream Canvas (Default warm paper mode). Click to switch to Midnight Focus for late-night journaling."
+                }
+              >
+                {currentTheme === 'midnight' ? (
+                  <>
+                    <Moon className="w-3.5 h-3.5 text-amber-300 fill-amber-300 animate-pulse" />
+                    <span className="font-mono-code">Midnight Focus</span>
+                  </>
+                ) : (
+                  <>
+                    <Sun className="w-3.5 h-3.5 text-amber-600" />
+                    <span className="font-mono-code">Cream Canvas</span>
+                  </>
+                )}
+              </button>
             )}
 
             <div className="flex items-center bg-white border border-stone-300 rounded-lg px-2.5 py-1.5 shadow-xs">

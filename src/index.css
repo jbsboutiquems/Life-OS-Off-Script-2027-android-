@@ -74,6 +74,191 @@
 }
 
 /* ==========================================================================
+   MIDNIGHT FOCUS HIGH-CONTRAST DARK THEME
+   Engineered for late-night journaling, low eye strain, and deep focus
+   ========================================================================== */
+html.theme-midnight,
+body.theme-midnight {
+  background-color: #0b0f19 !important;
+  color: #f8fafc !important;
+  color-scheme: dark;
+}
+
+.theme-midnight {
+  --bg-primary: #0b0f19;
+  --bg-card: #111827;
+  --bg-card-subtle: #162032;
+  --border-card: #283548;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+}
+
+/* Base background overrides in midnight mode */
+.theme-midnight main,
+.theme-midnight aside,
+.theme-midnight .bg-cream-canvas {
+  background-color: #0b0f19 !important;
+}
+
+.theme-midnight header {
+  background-color: rgba(11, 15, 25, 0.95) !important;
+  border-color: #1e293b !important;
+}
+
+.theme-midnight footer {
+  background-color: #0b0f19 !important;
+  border-color: #1e293b !important;
+  color: #94a3b8 !important;
+}
+
+.theme-midnight footer .text-slate-800,
+.theme-midnight footer .text-stone-800 {
+  color: #f1f5f9 !important;
+}
+
+.theme-midnight nav[aria-label="Android Mobile Navigation"] {
+  background-color: rgba(11, 15, 25, 0.95) !important;
+  border-color: #1e293b !important;
+}
+
+.theme-midnight .bg-\[\#f7f4ed\],
+.theme-midnight .bg-\[\#faf7f0\],
+.theme-midnight .bg-\[\#faf5eb\],
+.theme-midnight .bg-\[\#f0ece1\],
+.theme-midnight .bg-\[\#fbf9f4\],
+.theme-midnight .bg-\[\#fffdf9\],
+.theme-midnight .bg-warm-card {
+  background-color: #111827 !important;
+  border-color: #283548 !important;
+  color: #f8fafc !important;
+}
+
+.theme-midnight .bg-white {
+  background-color: #151f32 !important;
+  border-color: #2b3952 !important;
+  color: #f8fafc !important;
+}
+
+.theme-midnight .bg-stone-50,
+.theme-midnight .bg-stone-100,
+.theme-midnight .bg-stone-200 {
+  background-color: #1a2438 !important;
+  border-color: #33435c !important;
+  color: #e2e8f0 !important;
+}
+
+.theme-midnight .bg-amber-50,
+.theme-midnight .bg-amber-100 {
+  background-color: #231c12 !important;
+  border-color: #4d381c !important;
+  color: #fef3c7 !important;
+}
+
+.theme-midnight .bg-rose-50,
+.theme-midnight .bg-rose-100 {
+  background-color: #2b111a !important;
+  border-color: #5c1d31 !important;
+  color: #ffe4e6 !important;
+}
+
+.theme-midnight .bg-emerald-50,
+.theme-midnight .bg-emerald-100 {
+  background-color: #0d281e !important;
+  border-color: #1b533e !important;
+  color: #d1fae5 !important;
+}
+
+.theme-midnight .bg-sky-50,
+.theme-midnight .bg-sky-100 {
+  background-color: #0c2136 !important;
+  border-color: #1b456e !important;
+  color: #e0f2fe !important;
+}
+
+.theme-midnight .bg-purple-50,
+.theme-midnight .bg-purple-100 {
+  background-color: #221236 !important;
+  border-color: #4a2475 !important;
+  color: #f3e8ff !important;
+}
+
+/* High-contrast Text in midnight mode */
+.theme-midnight .text-slate-900,
+.theme-midnight .text-slate-800,
+.theme-midnight .text-stone-900,
+.theme-midnight .text-stone-800,
+.theme-midnight .text-amber-950,
+.theme-midnight .text-amber-900,
+.theme-midnight .text-rose-950,
+.theme-midnight .text-sky-950 {
+  color: #f8fafc !important;
+}
+
+.theme-midnight .text-stone-700,
+.theme-midnight .text-stone-600,
+.theme-midnight .text-slate-700,
+.theme-midnight .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+.theme-midnight .text-stone-500,
+.theme-midnight .text-stone-400 {
+  color: #94a3b8 !important;
+}
+
+.theme-midnight .border-stone-800,
+.theme-midnight .border-stone-700,
+.theme-midnight .border-stone-400,
+.theme-midnight .border-stone-300,
+.theme-midnight .border-stone-200,
+.theme-midnight .border-amber-300,
+.theme-midnight .border-rose-300,
+.theme-midnight .border-rose-200,
+.theme-midnight .border-sky-300,
+.theme-midnight .border-sky-200 {
+  border-color: #283548 !important;
+}
+
+/* Form controls & inputs: High-contrast midnight journaling styling */
+.theme-midnight input:not([type="checkbox"]):not([type="radio"]),
+.theme-midnight textarea,
+.theme-midnight select {
+  background-color: #0c1220 !important;
+  color: #f8fafc !important;
+  border-color: #334460 !important;
+}
+
+.theme-midnight input:focus,
+.theme-midnight textarea:focus,
+.theme-midnight select:focus {
+  border-color: #fb7185 !important;
+  outline-color: #fb7185 !important;
+  background-color: #0f172a !important;
+}
+
+.theme-midnight input::placeholder,
+.theme-midnight textarea::placeholder {
+  color: #64748b !important;
+}
+
+.theme-midnight .lined-paper {
+  background-image: linear-gradient(to bottom, transparent 27px, #1e293b 28px) !important;
+}
+
+.theme-midnight ::-webkit-scrollbar-track {
+  background: #0b0f19 !important;
+}
+
+.theme-midnight ::-webkit-scrollbar-thumb {
+  background: #2a374f !important;
+}
+
+.theme-midnight ::-webkit-scrollbar-thumb:hover {
+  background: #3b4c68 !important;
+}
+
+/* ==========================================================================
    PRINT MEDIA QUERIES & STRUCTURED PDF EXPORT
    ========================================================================== */
 @media print {

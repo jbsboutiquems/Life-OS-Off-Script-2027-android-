@@ -35,6 +35,8 @@
         "chaos_score": { "type": "number" },
         "micro_dare_completed": { "type": "boolean" },
         "micro_dare_notes": { "type": "string" },
+        "habit_streak": { "type": "number" },
+        "big6_completed": { "type": "boolean" },
         "updated_at": { "type": "string" }
       },
       "required": ["id", "userId", "entry_date"]

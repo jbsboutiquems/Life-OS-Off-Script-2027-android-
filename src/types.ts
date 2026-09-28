@@ -46,6 +46,12 @@ export interface AntiGoal {
   created_at: string;
 }
 
+export interface GoalDailyContribution {
+  goal_id: string;
+  completed: boolean;
+  note?: string;
+}
+
 export interface DailyEntry {
   id: string;
   entry_date: string; // YYYY-MM-DD
@@ -60,6 +66,9 @@ export interface DailyEntry {
   chaos_score: number; // 1-10
   holiday_title?: string;
   holiday_adventure?: string;
+  goal_progress?: GoalDailyContribution[]; // Daily contributions to Big 6 goals
+  habit_streak?: number; // Habit streak count for consecutive daily Big 6 task completion
+  big6_completed?: boolean; // Whether all Big 6 daily tasks are completed for this date
   updated_at: string;
 }
 
@@ -197,4 +206,13 @@ export interface FinancialAuditResult {
   emotional_spending_pattern: string;
   sovereignty_rating: string;
   permission_slip: string;
+}
+
+export interface CompanionCheckInResult {
+  trigger_type: 'field_notes_followup' | 'inactivity_checkin';
+  message: string;
+  follow_up_question: string;
+  witty_quip: string;
+  suggested_replies: string[];
+  hours_inactive?: number;
 }

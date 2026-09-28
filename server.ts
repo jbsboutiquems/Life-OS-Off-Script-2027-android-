@@ -64,6 +64,48 @@ const defaultData: DataStore = {
     }
   },
   dailyEntries: {
+    "2026-09-26": {
+      id: "entry_2026-09-26",
+      entry_date: "2026-09-26",
+      morning_intention: "Relentless focus on core essentials over distraction.",
+      today_i_am: "A grounded builder in deep focus.",
+      anchor_question_answer: "Keeping personal sovereignty non-negotiable.",
+      priorities: ["Deep focus session", "Analog notebook sketch", "Unplugged evening walk"],
+      midday_checkin: "Smooth flow, low friction. Kept boundaries intact.",
+      micro_dare_completed: true,
+      micro_dare_notes: "Left the smartphone in a desk drawer for 2 uninterrupted hours.",
+      evening_notes: "Completed all Big 6 goals today with steady pacing. No performative scramble.",
+      chaos_score: 4,
+      big6_completed: true,
+      habit_streak: 1,
+      goal_progress: [
+        { goal_id: "goal_01", completed: true, note: "Drafted 500 words" },
+        { goal_id: "goal_02", completed: true, note: "Phone away at 8 PM" },
+        { goal_id: "goal_03", completed: true, note: "Locked in dates" }
+      ],
+      updated_at: "2026-09-26T22:00:00.000Z"
+    },
+    "2026-09-27": {
+      id: "entry_2026-09-27",
+      entry_date: "2026-09-27",
+      morning_intention: "Holding space for deep craft and quiet momentum.",
+      today_i_am: "An intentional pilot holding steady altitude.",
+      anchor_question_answer: "Honoring my creative commitments without apologies.",
+      priorities: ["Write essay draft", "Review anti-goals", "Sunset reset"],
+      midday_checkin: "Energy is balanced. Second consecutive day locked in on Big 6.",
+      micro_dare_completed: true,
+      micro_dare_notes: "Drew a minimalist symbol for sovereign focus on my hand.",
+      evening_notes: "Completed all Big 6 vectors consecutively for day 2. Momentum feels clean and sustainable.",
+      chaos_score: 5,
+      big6_completed: true,
+      habit_streak: 2,
+      goal_progress: [
+        { goal_id: "goal_01", completed: true, note: "Refined essay paragraphs" },
+        { goal_id: "goal_02", completed: true, note: "Analog alarm armed" },
+        { goal_id: "goal_03", completed: true, note: "Reviewed itinerary" }
+      ],
+      updated_at: "2026-09-27T22:00:00.000Z"
+    },
     "2027-01-01": {
       id: "entry_2027-01-01",
       entry_date: "2027-01-01",
@@ -868,6 +910,175 @@ Respond as Mei:
   res.json({
     reply: `Let's be intensely real for a second. You asked: "${message}". Notice how you're trying to analyze the problem instead of feeling the friction? The answer isn't another framework or a cleaner spreadsheet. You already know what boundary you're avoiding setting. Put the laptop down and make the decision you've been putting off.`
   });
+});
+
+// 4b. AI Companion Persona: Proactive Evening Follow-Up & 12-Hour Inactivity Check-in
+app.post("/api/ai/companion-checkin", async (req, res) => {
+  const {
+    evening_notes = "",
+    hours_since_last_entry = 0,
+    last_entry_date = "",
+    user_profile = db.user,
+    force_type
+  } = req.body;
+
+  // Determine trigger type: either follow-up on evening field notes or 12+ hour inactivity check-in
+  let trigger_type: 'field_notes_followup' | 'inactivity_checkin' = 'field_notes_followup';
+  if (force_type === 'inactivity_checkin' || force_type === 'field_notes_followup') {
+    trigger_type = force_type;
+  } else if (hours_since_last_entry >= 12) {
+    trigger_type = 'inactivity_checkin';
+  } else if (evening_notes && evening_notes.trim().length > 10) {
+    trigger_type = 'field_notes_followup';
+  } else if (hours_since_last_entry >= 8) {
+    trigger_type = 'inactivity_checkin';
+  }
+
+  const ai = getGeminiClient();
+  const alias = user_profile?.chaos_name || db.user.chaos_name || "The Operator";
+  const wordOfYear = user_profile?.word_of_the_year || db.user.word_of_the_year || "FERAL";
+
+  if (ai) {
+    try {
+      if (trigger_type === 'field_notes_followup') {
+        const prompt = `
+You are MEI, the Companion Persona inside "Life OS: Off*Script 2027 (Chaos Year Edition)".
+CORE SLOGAN: "Boredom=Death".
+YOUR PERSONA:
+- Razor-sharp, deeply loyal, sassy, witty, psychologically perceptive, zero toxic positivity.
+- You refuse to let the user rationalize burnout, perform politeness, or gaslight their own intuition.
+- You talk like a fiercely loving comrade holding up a mirror to their real uncensored thoughts.
+
+USER: "${alias}", Word of the Year: "${wordOfYear}"
+USER'S EVENING FIELD NOTES / RANT BOX:
+"${evening_notes || "Had a chaotic day and felt like I was running around putting out fires that weren't even mine."}"
+
+YOUR TASK:
+1. Provide a sharp, witty quip summarizing what you notice in their notes (1-2 sentences).
+2. Ask ONE laser-focused, penetrating follow-up question that cuts through their performance or addresses the root contradiction.
+3. Suggest 3 authentic, uncurated quick-reply choices they can click to respond immediately.
+
+Return JSON in this format:
+{
+  "trigger_type": "field_notes_followup",
+  "witty_quip": string,
+  "message": string,
+  "follow_up_question": string,
+  "suggested_replies": [string, string, string]
+}
+`;
+        const response = await ai.models.generateContent({
+          model: "gemini-3.8-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            temperature: 0.85
+          }
+        });
+
+        const parsed = JSON.parse(response.text || "{}");
+        if (parsed.follow_up_question) {
+          return res.json({
+            trigger_type: 'field_notes_followup',
+            witty_quip: parsed.witty_quip || "I read between the lines of your evening notes.",
+            message: parsed.message || parsed.witty_quip || "You said you were fine, but your field notes say otherwise.",
+            follow_up_question: parsed.follow_up_question,
+            suggested_replies: Array.isArray(parsed.suggested_replies) && parsed.suggested_replies.length > 0
+              ? parsed.suggested_replies.slice(0, 3)
+              : [
+                  "I was performing competence again.",
+                  "I'm terrified of dropping the ball.",
+                  "Honestly, I'm just furious and need to sleep on it."
+                ]
+          });
+        }
+      } else {
+        // Inactivity Check-in (>12 hours)
+        const prompt = `
+You are MEI, the Companion Persona inside "Life OS: Off*Script 2027 (Chaos Year Edition)".
+CORE SLOGAN: "Boredom=Death".
+YOUR PERSONA:
+- Witty, sassy, irreverent, observant, fiercely loyal, anti-hustle.
+- DO NOT guilt-trip the user for missing a daily check-in (no toxic streak-shaming!).
+- Instead, initiate a brief, playful, witty pulse check because it has been over 12 hours (${Math.round(hours_since_last_entry || 14)} hours) since their last entry.
+- Wonder if they've been abducted by corporate autopilot, paralyzed by perfectionism, or actually living off-grid.
+
+USER: "${alias}", Word of the Year: "${wordOfYear}"
+
+YOUR TASK:
+1. Craft a brief, witty check-in quip addressing the 12+ hour silence.
+2. Ask ONE playful follow-up question to re-engage their nervous system.
+3. Provide 3 punchy, honest quick-replies.
+
+Return JSON in this format:
+{
+  "trigger_type": "inactivity_checkin",
+  "witty_quip": string,
+  "message": string,
+  "follow_up_question": string,
+  "suggested_replies": [string, string, string],
+  "hours_inactive": number
+}
+`;
+        const response = await ai.models.generateContent({
+          model: "gemini-3.8-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            temperature: 0.85
+          }
+        });
+
+        const parsed = JSON.parse(response.text || "{}");
+        if (parsed.follow_up_question || parsed.message) {
+          return res.json({
+            trigger_type: 'inactivity_checkin',
+            witty_quip: parsed.witty_quip || "Over 12 hours of radio silence detected.",
+            message: parsed.message || `It's been ${Math.round(hours_since_last_entry || 14)} hours since your last flight transmission.`,
+            follow_up_question: parsed.follow_up_question || "Did you get domesticated by mindless autopilot, or are you actually off-script living in 3D?",
+            suggested_replies: Array.isArray(parsed.suggested_replies) && parsed.suggested_replies.length > 0
+              ? parsed.suggested_replies.slice(0, 3)
+              : [
+                  "Got swallowed by errands and screen fatigue.",
+                  "Actually lived a full off-grid day without reporting.",
+                  "Staring at a blank wall recalibrating."
+                ],
+            hours_inactive: Math.round(hours_since_last_entry || 14)
+          });
+        }
+      }
+    } catch (e: any) {
+      console.warn("Companion check-in AI error, using fallback:", e.message);
+    }
+  }
+
+  // Graceful Fallback
+  if (trigger_type === 'field_notes_followup') {
+    return res.json({
+      trigger_type: 'field_notes_followup',
+      witty_quip: "Mei's Lens on your Evening Field Notes",
+      message: "You wrote that you're exhausted, but your notes reveal you spent half your afternoon defending boundaries you never actually spoke out loud.",
+      follow_up_question: "Who is the imaginary judge you are still trying to impress with this performance?",
+      suggested_replies: [
+        "My past self who thought exhaustion was proof of virtue.",
+        "Someone whose email I still haven't answered.",
+        "Nobody. I just forgot that rest is free."
+      ]
+    });
+  } else {
+    return res.json({
+      trigger_type: 'inactivity_checkin',
+      witty_quip: "12-Hour Radio Silence Ping",
+      message: `Over 12 hours since your last flight log transmission.`,
+      follow_up_question: "Did you surrender to the mundane matrix, or did you unplug and forget the log exists because life got interesting?",
+      suggested_replies: [
+        "Trapped in domestic busywork and need a reboot.",
+        "Off-grid and genuinely thriving.",
+        "Stuck in a doomscroll loop, pull me out."
+      ],
+      hours_inactive: Math.round(hours_since_last_entry || 14)
+    });
+  }
 });
 
 // 5. AI Goal Stress-Tester ("Bullshit Detector")

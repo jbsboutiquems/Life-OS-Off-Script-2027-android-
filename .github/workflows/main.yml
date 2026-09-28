@@ -4,24 +4,24 @@
   uses: deep-rent/publish-android-release@v1.0.1
   with:
     # Path to the root Android project directory containing the gradlew executable.
-    project-directory: # default is .
+    project-directory: android
     # Base64-encoded string representation of your Android release keystore (e.g., .jks or .keystore) file.
-    keystore: 
+    keystore: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     # The password required to unlock the Android keystore.
-    keystore-password: 
+    keystore-password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
     # The alias of the signing key stored within the keystore.
-    key-alias: 
+    key-alias: ${{ secrets.ANDROID_KEY_ALIAS }}
     # The password for the specific signing key alias. Defaults to the keystore password.
-    key-password: # optional
+    key-password: ${{ secrets.ANDROID_KEY_PASSWORD }}
     # The plain text JSON contents of the Google Cloud Service Account used to authenticate with the Google Play Developer API.
-    service-account: 
+    service-account: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
     # The application ID (package name) of the Android app (e.g., com.example.app).
-    package-name: 
+    package-name: com.snoopyscloset.lifeos.offscript2027
     # The relative path to the generated Android App Bundle (AAB) file.
-    release-file: # default is app/build/outputs/bundle/release/app-release.aab
+    release-file: app/build/outputs/bundle/release/app-release.aab
     # The relative path to the generated ProGuard/R8 mapping.txt file.
-    mapping-file: # default is app/build/outputs/mapping/release/mapping.txt
+    mapping-file: app/build/outputs/mapping/release/mapping.txt
     # The Google Play track to publish the release to. Valid options are: internal, alpha, beta, production.
-    track: # default is internal
+    track: internal
     # The status of the release. Valid options are: completed, draft, halted, inProgress.
-    status: # default is completed
+    status: completed

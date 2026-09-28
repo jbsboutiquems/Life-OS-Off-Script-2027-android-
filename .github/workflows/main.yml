@@ -16,7 +16,7 @@
     # The plain text JSON contents of the Google Cloud Service Account used to authenticate with the Google Play Developer API.
     service-account: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
     # The application ID (package name) of the Android app (e.g., com.example.app).
-    package-name: com.snoopyscloset.lifeos.offscript2027
+    package-name: ${{ secrets.ANDROID_PACKAGE_NAME }}
     # The relative path to the generated Android App Bundle (AAB) file.
     release-file: app/build/outputs/bundle/release/app-release.aab
     # The relative path to the generated ProGuard/R8 mapping.txt file.

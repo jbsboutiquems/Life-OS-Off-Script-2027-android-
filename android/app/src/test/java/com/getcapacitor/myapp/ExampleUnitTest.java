@@ -1,4 +1,4 @@
-package com.getcapacitor.myapp;
+package com.snoopyscloset.lifeos.offscript2027;
 
 import static org.junit.Assert.*;
 

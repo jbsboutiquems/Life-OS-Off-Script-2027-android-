@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "com.lifeos.offscript2027"
+    namespace "com.snoopyscloset.lifeos.offscript2027"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.lifeos.offscript2027"
+        applicationId "com.snoopyscloset.lifeos.offscript2027"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -5,6 +5,7 @@ import { aiConsentHeaders } from './aiConsent';
 // ================= Auth + session =================
 
 const TOKEN_KEY = 'lifeos:auth:token';
+let inMemoryToken: string | null = null;
 let cachedUserId: string | null = null;
 let authFailureHandler: (() => void) | null = null;
 
@@ -17,28 +18,16 @@ export class AuthError extends Error {
 }
 
 function getToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  return inMemoryToken;
 }
 
 function setToken(token: string) {
-  try {
-    localStorage.setItem(TOKEN_KEY, token);
-  } catch {
-    // ignore
-  }
+  inMemoryToken = token;
   cachedUserId = null;
 }
 
 function clearToken() {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    // ignore
-  }
+  inMemoryToken = null;
   cachedUserId = null;
 }
 

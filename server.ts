@@ -1,305 +1,276 @@
 import express from "express";
-import http from "http";
 import path from "path";
 import fs from "fs";
-import { WebSocketServer } from "ws";
-import { GoogleGenAI, Type, GenerateVideosOperation, Modality } from "@google/genai";
+import crypto from "crypto";
+import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { smtpConfigured, baseUrl, sendMail, verificationEmail, resetEmail } from "./email";
+import { computeDueReminders, type ReminderSettings } from "./src/lib/reminders";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use(express.json());
 
-function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build'
-      }
-    }
-  });
-}
+// ================= DATA MODEL (v2: multi-user) =================
+// Every personal collection is namespaced per user inside `users[userId]`.
+// `contentPacks` and `qrTokens` stay global (packs are shared, QR tokens are
+// single-use across the whole prototype). Sessions are server-side records.
 
-// In-memory data store with file persistence
 const DATA_FILE = path.join(process.cwd(), "chaos_os_data.json");
 
-interface DataStore {
-  user: any;
-  dailyEntries: Record<string, any>; // date -> entry
-  personalitySnapshots: any[];
-  goals: any[];
-  antiGoals?: any[];
-  flightDebriefs: Record<string, any>; // weekNumber -> debrief
-  moneyMaps: Record<string, any>; // "YYYY-MM" -> map
+interface AccountUser {
+  id: string;
+  username: string;      // display form — required for EVERY account, every signup method
+  usernameKey: string;   // lowercase, uniqueness-checked
+  passwordHash: string;  // "scrypt$N$r$p$salt$hash" — empty means locked, can never log in
+  /** scrypt hash of "recovery:<CODE>" — the plaintext code is NEVER stored. Empty = no recovery available. */
+  recoveryHash: string;
+  /** Email auth / OAuth linking. */
+  email?: string;
+  emailVerified?: boolean;
+  googleId?: string;
+  facebookId?: string;
+  /** ISO timestamps of username changes — rate-limited (3 per 24h). */
+  usernameHistory?: string[];
+  created_at: string;
 }
 
-const defaultData: DataStore = {
-  user: {
-    id: "user_chaos_01",
-    chaos_name: "The Unruly Alchemist",
-    word_of_the_year: "FERAL",
-    slogan: "Boredom=Death",
-    chaos_mantra: "An intention is not a promise. It is a direction. I am allowed to update the map.",
-    what_done_pretending: "Pretending that I have my life in neat boxes and that 5-year plans make any sense.",
-    what_ready_to_admit: "I thrive when there is room for surprise and friction, not rigid perfectionism.",
-    relationship_with_chaos: "Not disorder, but raw material for becoming.",
-    permission_granted: "You have permission to change your mind mid-sentence, skip a day without guilt, and burn the performance.",
-    created_at: new Date().toISOString(),
-    core_values: {
-      autonomy: 9,
-      honesty: 10,
-      creativity: 8,
-      presence: 7,
-      resilience: 8,
-      playfulness: 9,
-      rest: 6,
-      discipline: 7
-    }
-  },
-  dailyEntries: {
-    "2026-09-26": {
-      id: "entry_2026-09-26",
-      entry_date: "2026-09-26",
-      morning_intention: "Relentless focus on core essentials over distraction.",
-      today_i_am: "A grounded builder in deep focus.",
-      anchor_question_answer: "Keeping personal sovereignty non-negotiable.",
-      priorities: ["Deep focus session", "Analog notebook sketch", "Unplugged evening walk"],
-      midday_checkin: "Smooth flow, low friction. Kept boundaries intact.",
-      micro_dare_completed: true,
-      micro_dare_notes: "Left the smartphone in a desk drawer for 2 uninterrupted hours.",
-      evening_notes: "Completed all Big 6 goals today with steady pacing. No performative scramble.",
-      chaos_score: 4,
-      big6_completed: true,
-      habit_streak: 1,
-      goal_progress: [
-        { goal_id: "goal_01", completed: true, note: "Drafted 500 words" },
-        { goal_id: "goal_02", completed: true, note: "Phone away at 8 PM" },
-        { goal_id: "goal_03", completed: true, note: "Locked in dates" }
-      ],
-      updated_at: "2026-09-26T22:00:00.000Z"
-    },
-    "2026-09-27": {
-      id: "entry_2026-09-27",
-      entry_date: "2026-09-27",
-      morning_intention: "Holding space for deep craft and quiet momentum.",
-      today_i_am: "An intentional pilot holding steady altitude.",
-      anchor_question_answer: "Honoring my creative commitments without apologies.",
-      priorities: ["Write essay draft", "Review anti-goals", "Sunset reset"],
-      midday_checkin: "Energy is balanced. Second consecutive day locked in on Big 6.",
-      micro_dare_completed: true,
-      micro_dare_notes: "Drew a minimalist symbol for sovereign focus on my hand.",
-      evening_notes: "Completed all Big 6 vectors consecutively for day 2. Momentum feels clean and sustainable.",
-      chaos_score: 5,
-      big6_completed: true,
-      habit_streak: 2,
-      goal_progress: [
-        { goal_id: "goal_01", completed: true, note: "Refined essay paragraphs" },
-        { goal_id: "goal_02", completed: true, note: "Analog alarm armed" },
-        { goal_id: "goal_03", completed: true, note: "Reviewed itinerary" }
-      ],
-      updated_at: "2026-09-27T22:00:00.000Z"
-    },
-    "2027-01-01": {
-      id: "entry_2027-01-01",
-      entry_date: "2027-01-01",
-      morning_intention: "Today I am choosing steadiness over optimization.",
-      today_i_am: "A quiet rebel drinking cold brew at dawn.",
-      anchor_question_answer: "I am showing up as someone willing to leave the edges ragged.",
-      priorities: ["Protect 2 hours for unscripted creation", "Walk the perimeter of the block without my phone", "Drink 3 glasses of cold water"],
-      midday_checkin: "Energy is at a 6/10. The world tried to convince me to make 14 resolutions, but I declined.",
-      micro_dare_completed: true,
-      micro_dare_notes: "Made a tiny paper flag for Fresh Margin Day and left it next to my mug.",
-      evening_notes: "Felt the familiar itch to over-organize my week into hour blocks. Caught myself doing it and closed the laptop. Why do I keep confusing color-coded calendars with peace of mind? Still felt guilty about taking a nap at 2 PM, like I owe someone an invoice for resting. Need to stop apologizing for existing at 50% battery.",
-      chaos_score: 5,
-      holiday_title: "Fresh Margin Day",
-      holiday_adventure: "Draw a tiny flag for Fresh Margin Day; plant it beside your breakfast and salute once.",
-      updated_at: new Date().toISOString()
-    }
-  },
-  personalitySnapshots: [
-    {
-      id: "snap_init_01",
-      entry_id: "entry_2027-01-01",
-      snapshot_date: "2027-01-01",
-      openness: 84,
-      conscientiousness: 62,
-      extraversion: 46,
-      agreeableness: 58,
-      neuroticism: 68,
-      detected_mood: "Vigilant, Self-Critical, Emergent",
-      burnout_risk: "Moderate",
-      self_sabotage_alert: "Guilt around afternoon rest; attempting to over-structure calendar as an anxiety coping mechanism.",
-      contradiction_callout: "You stated your intention was 'steadiness over optimization', yet your first impulse was scheduling hour blocks and demanding an invoice for your nap.",
-      ai_feedback: "Look at you: you preached freedom this morning, then immediately drafted an imaginary indictment against your afternoon nap. You don't need a tighter schedule, darling; you need to stop acting like rest is stolen merchandise.",
-      micro_dare: "Tomorrow on Spare Key Day, use your non-dominant hand to scribble a 3-line manifesto of things you refuse to explain to anyone.",
-      sub_traits: [
-        { name: "Imagination", dimension: "Openness", score: 88, trait_description: "Rich internal narrative and symbolic framing." },
-        { name: "Intellect / Curiosity", dimension: "Openness", score: 82, trait_description: "Appetite for re-framing mental premises." },
-        { name: "Artistic Interests", dimension: "Openness", score: 85, trait_description: "Receptivity to aesthetic contrast and metaphor." },
-        { name: "Emotionality", dimension: "Openness", score: 79, trait_description: "High sensitivity to subtle affective shifts." },
-        { name: "Adventurousness", dimension: "Openness", score: 80, trait_description: "Desire to explore off-script experiences." },
-        { name: "Liberalism / Freedom", dimension: "Openness", score: 90, trait_description: "Resistance to dogmatic authority and scripts." },
+interface EmailTokenRecord {
+  accountId: string;
+  kind: "verify" | "reset";
+  email: string;
+  expires_at: string;
+}
 
-        { name: "Self-Efficacy", dimension: "Conscientiousness", score: 65, trait_description: "Belief in ability to execute, when unstuck." },
-        { name: "Orderliness", dimension: "Conscientiousness", score: 74, trait_description: "Compulsion to impose systems when anxious." },
-        { name: "Dutifulness", dimension: "Conscientiousness", score: 60, trait_description: "Conflicted sense of obligation to external eyes." },
-        { name: "Achievement-Striving", dimension: "Conscientiousness", score: 68, trait_description: "Strong internal ambition, currently recalibrating." },
-        { name: "Self-Discipline", dimension: "Conscientiousness", score: 55, trait_description: "Friction in maintaining monotonous tasks." },
-        { name: "Cautiousness", dimension: "Conscientiousness", score: 50, trait_description: "Oscillating between bold leap and careful retreat." },
+interface SessionRecord {
+  userId: string;
+  created_at: string;
+  expires_at: string;
+}
 
-        { name: "Friendliness", dimension: "Extraversion", score: 52, trait_description: "Warm in chosen intimacies, guarded with crowds." },
-        { name: "Gregariousness", dimension: "Extraversion", score: 38, trait_description: "Low appetite for surface-level small talk." },
-        { name: "Assertiveness", dimension: "Extraversion", score: 56, trait_description: "Strong inner boundary with occasional retreat." },
-        { name: "Activity Level", dimension: "Extraversion", score: 50, trait_description: "Bursts of creative speed followed by hibernation." },
-        { name: "Excitement-Seeking", dimension: "Extraversion", score: 48, trait_description: "Prefers psychological depth over loud thrill." },
-        { name: "Cheerfulness", dimension: "Extraversion", score: 34, trait_description: "Rejects toxic optimism; grounded irony." },
+interface StudioMediaItem {
+  id: string;
+  type: "music" | "image" | "video" | "transcript";
+  prompt: string;
+  /** Data URL for audio/image; transcript text stored separately for transcripts. */
+  resultUrl: string;
+  transcript?: string;
+  mimeType?: string;
+  aspectRatio?: string;
+  model?: string;
+  /** Veo long-running operation name — used to resume polling / download. */
+  operationName?: string;
+  createdAt: string;
+}
 
-        { name: "Trust", dimension: "Agreeableness", score: 44, trait_description: "Protective skepticism towards easy promises." },
-        { name: "Morality / Honesty", dimension: "Agreeableness", score: 88, trait_description: "High valuation of raw, uncurated truth." },
-        { name: "Altruism", dimension: "Agreeableness", score: 62, trait_description: "Generous to fellow travelers, allergic to martyrdom." },
-        { name: "Cooperation", dimension: "Agreeableness", score: 49, trait_description: "Selective collaborator; fiercely sovereign." },
-        { name: "Modesty", dimension: "Agreeableness", score: 45, trait_description: "Dislikes humblebrags; proud of authentic craft." },
-        { name: "Sympathy", dimension: "Agreeableness", score: 60, trait_description: "Compassion for human messiness and struggle." },
+interface UserData {
+  user: any;
+  dailyEntries: Record<string, any>;
+  personalitySnapshots: any[];
+  goals: any[];
+  antiGoals: any[];
+  flightDebriefs: Record<string, any>;
+  moneyMaps: Record<string, any>;
+  chaosPoints: any[];
+  flightCrew: any[];
+  userEntitlements: string[];
+  /** AI Studio (media studio, Gemini-backed) saved generations. */
+  studioMedia: StudioMediaItem[];
+}
 
-        { name: "Anxiety", dimension: "Neuroticism", score: 72, trait_description: "Anticipatory worry disguised as planning." },
-        { name: "Anger / Frustration", dimension: "Neuroticism", score: 58, trait_description: "Smoldering impatience with societal script." },
-        { name: "Depression / Depletion", dimension: "Neuroticism", score: 52, trait_description: "Periodic energy crash when performing presence." },
-        { name: "Self-Consciousness", dimension: "Neuroticism", score: 64, trait_description: "Awareness of the 'imaginary audience'." },
-        { name: "Immoderation", dimension: "Neuroticism", score: 48, trait_description: "Controlled impulsive pivots." },
-        { name: "Vulnerability", dimension: "Neuroticism", score: 70, trait_description: "Open to feeling deeply, with vulnerability hangover." }
-      ]
-    }
-  ],
-  goals: [
-    {
-      id: "goal_01",
-      title: "Write the Unfiltered Essay Collection",
-      quarter: "Q1",
-      why_statement: "Because staying inside polite sentences is slowly suffocating my brain.",
-      success_metric: "5 completed essays published or bound in paper",
-      first_step: "Open a fresh document and draft 500 words without a backspace key",
-      is_completed: false,
-      created_at: new Date().toISOString()
-    },
-    {
-      id: "goal_02",
-      title: "Establish the 'No After-Hours Performance' Boundary",
-      quarter: "Q1",
-      why_statement: "My nervous system cannot heal if I treat evenings like overtime.",
-      success_metric: "Phone in a desk drawer every evening at 8:00 PM for 30 consecutive days",
-      first_step: "Buy an analog alarm clock and plug the charger in the hallway",
-      is_completed: false,
-      created_at: new Date().toISOString()
-    },
-    {
-      id: "goal_03",
-      title: "Solo 48-Hour Off-Grid Road Trip",
-      quarter: "Q2",
-      why_statement: "To remember who I am when nobody is asking me for anything.",
-      success_metric: "Book the cabin and go without a laptop",
-      first_step: "Mark the calendar dates as non-negotiable",
-      is_completed: false,
-      created_at: new Date().toISOString()
-    }
-  ],
-  antiGoals: [
-    {
-      id: "antigoal_01",
-      title: "Apologizing before asking a straightforward question in team chats",
-      category: "People Pleasing",
-      why_stopped: "Shrinking myself to make normal communication feel like an inconvenience.",
-      is_completed: false,
-      created_at: new Date().toISOString()
-    },
-    {
-      id: "antigoal_02",
-      title: "Saying 'yes' on the spot to non-urgent commitments without sleeping on it",
-      category: "Boundary",
-      why_stopped: "Immediate compliance is fear masquerading as helpfulness.",
-      is_completed: true,
-      created_at: new Date().toISOString()
-    },
-    {
-      id: "antigoal_03",
-      title: "Checking work notifications and email before getting out of bed",
-      category: "Time Theft",
-      why_stopped: "Hands over the keys of my nervous system to strangers before sunrise.",
-      is_completed: false,
-      created_at: new Date().toISOString()
-    },
-    {
-      id: "antigoal_04",
-      title: "Polishing drafts for hours when 80% clarity was reached 3 hours ago",
-      category: "Perfectionism",
-      why_stopped: "Procrastination dressed in bespoke calligraphy.",
-      is_completed: false,
-      created_at: new Date().toISOString()
-    }
-  ],
-  flightDebriefs: {
-    "1": {
-      id: "debrief_w1",
-      week_number: 1,
-      date_range: "January 1–7, 2027",
-      chaos_level: 6,
-      q1_script_disapproval: "Canceled a non-essential status call to take a 45-minute walk in freezing mist.",
-      q2_honest_moment: "Admitted to a friend that I had zero desire to build an elaborate Q1 KPI tracker.",
-      q3_useful_surprise: "Discovered that saying 'no' immediately caused zero catastrophic fallout.",
-      q4_refusal_to_perform: "Stopped laughing politely at jokes that weren't funny.",
-      q5_one_word: "Unwinding",
-      q6_more_oxygen: "Unstructured morning coffee time.",
-      q7_less_attention: "Doom-scrolling industry LinkedIn takes.",
-      q8_next_move: "Write with my left hand for 5 minutes every day this week.",
-      updated_at: new Date().toISOString()
-    }
-  },
-  moneyMaps: {
-    "2027-01": {
-      id: "mm_2027-01",
-      month: 1,
-      year: 2027,
-      income_sources: [
-        { id: "inc_1", source: "Primary Retainer / Salary", amount: 4800 },
-        { id: "inc_2", source: "Creative Commission / Off-Script Print", amount: 650 }
-      ],
-      fixed_expenses: [
-        { id: "exp_1", name: "Studio & Rent", amount: 1650, due_date: "1st", paid: true },
-        { id: "exp_2", name: "Utilities & High-Speed WiFi", amount: 180, due_date: "5th", paid: true },
-        { id: "exp_3", name: "Subscriptions & Life OS Tools", amount: 95, due_date: "12th", paid: true },
-        { id: "exp_4", name: "Health Insurance & Therapy", amount: 420, due_date: "15th", paid: false }
-      ],
-      variable_logs: [
-        { id: "var_1", category: "Eating Out + Coffee", amount: 145, note: "Espresso & bakery sanctuary days" },
-        { id: "var_2", category: "Food + Groceries", amount: 320, note: "Fresh seasonal ingredients" },
-        { id: "var_3", category: "Gas + Transport", amount: 85, note: "Spontaneous drive to the coast" },
-        { id: "var_4", category: "Chaos & Spontaneous", amount: 110, note: "Heavy art paper & fountain pens" }
-      ],
-      one_surprise: "I spent significantly less on convenience takeout when I didn't rush my mornings.",
-      one_pattern: "Late-night online shopping spikes whenever I avoid writing difficult emails.",
-      financial_commitment: "Information first, judgment never. No shame spirals around groceries.",
-      no_shame_recap: "Money was spent to feed, house, and un-cage myself. The balance is intact.",
-      updated_at: new Date().toISOString()
-    }
+interface WallPost {
+  id: string;
+  userId: string;
+  username: string;
+  text: string;
+  created_at: string;
+}
+
+interface DmMessage {
+  id: string;
+  fromId: string;
+  fromUsername: string;
+  toId: string;
+  toUsername: string;
+  text: string;
+  created_at: string;
+}
+
+interface DataStore {
+  version: 2;
+  accounts: AccountUser[];
+  sessions: Record<string, SessionRecord>;
+  users: Record<string, UserData>;
+  contentPacks: Record<string, any>;
+  qrTokens: Record<string, any>;
+  /** Shared community wall — visible to every registered user on this instance. */
+  wallPosts: WallPost[];
+  /** One-to-one direct messages across all users. */
+  dmMessages: DmMessage[];
+  /** Read watermarks: userId -> partnerId -> ISO timestamp. */
+  dmRead: Record<string, Record<string, string>>;
+  /** Email verification / password-reset tokens, keyed by sha256(token). */
+  emailTokens: Record<string, EmailTokenRecord>;
+}
+
+const defaultContentPacks: Record<string, any> = {
+  planner_2027_core: {
+    pack_id: "planner_2027_core",
+    title: "Off*Script 2027 Core Planner",
+    assets_url: "/packs/planner-2027-core"
   }
 };
+
+const defaultQrTokens: Record<string, any> = {
+  "PACK-DEMO-2027": {
+    token_id: "PACK-DEMO-2027",
+    pack_id: "planner_2027_core",
+    is_redeemed: false,
+    redeemed_by_user_id: null,
+    redeemed_at: null
+  }
+};
+
+function freshUserData(userId: string, username: string): UserData {
+  const now = new Date().toISOString();
+  return {
+    user: {
+      id: userId,
+      chaos_name: username,
+      word_of_the_year: "UNTAMED",
+      slogan: "Boredom=Death",
+      chaos_mantra: "",
+      what_done_pretending: "",
+      what_ready_to_admit: "",
+      relationship_with_chaos: "",
+      permission_granted: "",
+      birthday: "",
+      birth_time: "",
+      birthplace: "",
+      horoscope_tone: "nice",
+      onboarding_seen: false,
+      reminder_daily_enabled: false,
+      reminder_daily_time: "20:00",
+      reminder_weekly_enabled: false,
+      reminder_weekly_day: 0,
+      reminder_weekly_time: "18:00",
+      created_at: now,
+      core_values: {
+        autonomy: 5, honesty: 5, creativity: 5, presence: 5,
+        resilience: 5, playfulness: 5, rest: 5, discipline: 5
+      }
+    },
+    dailyEntries: {},
+    personalitySnapshots: [],
+    goals: [],
+    antiGoals: [],
+    flightDebriefs: {},
+    moneyMaps: {},
+    chaosPoints: [],
+    flightCrew: [],
+    userEntitlements: [],
+    studioMedia: []
+  };
+}
+
+// Make sure an imported/restored namespace has every collection present.
+function normalizeUserData(input: any): UserData {
+  const d = input && typeof input === "object" ? input : {};
+  let entitlements: string[] = [];
+  if (Array.isArray(d.userEntitlements)) {
+    entitlements = d.userEntitlements.filter((x: any) => typeof x === "string");
+  } else if (d.userEntitlements && typeof d.userEntitlements === "object") {
+    // Tolerate the pre-accounts backup shape (map of userId -> packIds).
+    entitlements = Object.values(d.userEntitlements).flat().filter((x: any) => typeof x === "string") as string[];
+  }
+  return {
+    user: d.user && typeof d.user === "object" ? d.user : freshUserData("unknown", "operator").user,
+    dailyEntries: d.dailyEntries && typeof d.dailyEntries === "object" ? d.dailyEntries : {},
+    personalitySnapshots: Array.isArray(d.personalitySnapshots) ? d.personalitySnapshots : [],
+    goals: Array.isArray(d.goals) ? d.goals : [],
+    antiGoals: Array.isArray(d.antiGoals) ? d.antiGoals : [],
+    flightDebriefs: d.flightDebriefs && typeof d.flightDebriefs === "object" ? d.flightDebriefs : {},
+    moneyMaps: d.moneyMaps && typeof d.moneyMaps === "object" ? d.moneyMaps : {},
+    chaosPoints: Array.isArray(d.chaosPoints) ? d.chaosPoints : [],
+    flightCrew: Array.isArray(d.flightCrew) ? d.flightCrew : [],
+    userEntitlements: entitlements,
+    studioMedia: Array.isArray(d.studioMedia) ? d.studioMedia : []
+  };
+}
+
+function freshStore(): DataStore {
+  return {
+    version: 2,
+    accounts: [],
+    sessions: {},
+    users: {},
+    contentPacks: JSON.parse(JSON.stringify(defaultContentPacks)),
+    qrTokens: JSON.parse(JSON.stringify(defaultQrTokens)),
+    wallPosts: [],
+    dmMessages: [],
+    dmRead: {},
+    emailTokens: {}
+  };
+}
+
+// Pre-accounts prototype data is archived — never destroyed, never handed to a
+// new account. It lives under the locked "legacy" user, which has no password
+// hash and can never log in.
+function migrateLegacyFile(old: any): DataStore {
+  const now = new Date().toISOString();
+  const legacyUserData = normalizeUserData(old);
+  if (old && old.userEntitlements && typeof old.userEntitlements === "object" && !Array.isArray(old.userEntitlements)) {
+    const oldUserId = old.user?.id;
+    const packs = (old.userEntitlements[oldUserId] || []) as string[];
+    legacyUserData.userEntitlements = packs.filter((x) => typeof x === "string");
+  }
+  const store = freshStore();
+  store.accounts.push({
+    id: "legacy",
+    username: "legacy",
+    usernameKey: "legacy",
+    passwordHash: "",
+    recoveryHash: "",
+    created_at: now
+  });
+  store.users["legacy"] = legacyUserData;
+  if (old && typeof old === "object") {
+    if (old.contentPacks && typeof old.contentPacks === "object") store.contentPacks = old.contentPacks;
+    if (old.qrTokens && typeof old.qrTokens === "object") store.qrTokens = old.qrTokens;
+  }
+  return store;
+}
 
 function loadData(): DataStore {
   try {
     if (fs.existsSync(DATA_FILE)) {
-      const content = fs.readFileSync(DATA_FILE, "utf-8");
-      return JSON.parse(content);
+      const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+      if (parsed && parsed.version === 2 && parsed.users && parsed.accounts) {
+        const store = parsed as DataStore;
+        if (!store.sessions) store.sessions = {};
+        if (!store.contentPacks) store.contentPacks = JSON.parse(JSON.stringify(defaultContentPacks));
+        if (!store.qrTokens) store.qrTokens = JSON.parse(JSON.stringify(defaultQrTokens));
+        if (!Array.isArray(store.wallPosts)) store.wallPosts = [];
+        if (!Array.isArray(store.dmMessages)) store.dmMessages = [];
+        if (!store.dmRead || typeof store.dmRead !== "object") store.dmRead = {};
+        if (!store.emailTokens || typeof store.emailTokens !== "object") store.emailTokens = {};
+        for (const a of store.accounts) if (typeof a.recoveryHash !== "string") a.recoveryHash = "";
+        return store;
+      }
+      if (parsed && typeof parsed === "object") {
+        console.log("Migrating pre-accounts data file to per-user store (archived under locked 'legacy' user).");
+        const migrated = migrateLegacyFile(parsed);
+        saveData(migrated);
+        return migrated;
+      }
     }
   } catch (e) {
-    console.error("Error reading data file, using default", e);
+    console.error("Error reading data file, starting fresh", e);
   }
-  return defaultData;
+  return freshStore();
 }
 
 function saveData(data: DataStore) {
@@ -311,30 +282,794 @@ function saveData(data: DataStore) {
 }
 
 let db = loadData();
-if (!db.antiGoals) {
-  db.antiGoals = defaultData.antiGoals || [];
+
+// ================= AUTH =================
+
+const SCRYPT_N = 16384, SCRYPT_R = 8, SCRYPT_P = 1;
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(password, salt, 64, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, maxmem: 64 * 1024 * 1024 }).toString("hex");
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${hash}`;
 }
 
-// ================= API ROUTES =================
+function verifyPassword(password: string, stored: string): boolean {
+  try {
+    if (!stored) return false;
+    const parts = stored.split("$");
+    if (parts[0] !== "scrypt" || parts.length !== 6) return false;
+    const n = Number(parts[1]), r = Number(parts[2]), p = Number(parts[3]);
+    const salt = parts[4], expected = parts[5];
+    if (!Number.isFinite(n) || !Number.isFinite(r) || !Number.isFinite(p) || !salt || !expected) return false;
+    const derived = crypto.scryptSync(password, salt, 64, { N: n, r: r, p: p, maxmem: 64 * 1024 * 1024 }).toString("hex");
+    const a = Buffer.from(derived, "hex");
+    const b = Buffer.from(expected, "hex");
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 
-// User profile
-app.get("/api/user", (req, res) => {
-  res.json(db.user);
+// ---------- Password recovery via one-time-shown recovery codes ----------
+// No email in this system, so: at registration the server mints a code
+// (4 groups of 4 unambiguous chars), stores ONLY its scrypt hash, and shows
+// the plaintext exactly once. Recovery rotates the code every time it is used.
+
+const RECOVERY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I/L
+
+function generateRecoveryCode(): string {
+  const groups: string[] = [];
+  for (let g = 0; g < 4; g++) {
+    let grp = "";
+    const bytes = crypto.randomBytes(4);
+    for (let i = 0; i < 4; i++) grp += RECOVERY_ALPHABET[bytes[i] % RECOVERY_ALPHABET.length];
+    groups.push(grp);
+  }
+  return groups.join("-");
+}
+
+function normalizeRecoveryCode(code: string): string {
+  return String(code || "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function hashRecoveryCode(code: string): string {
+  return hashPassword(`recovery:${normalizeRecoveryCode(code)}`);
+}
+
+function verifyRecoveryCode(code: string, stored: string): boolean {
+  if (!stored) return false;
+  return verifyPassword(`recovery:${normalizeRecoveryCode(code)}`, stored);
+}
+
+// Blunt-force throttle: 10 recovery attempts per username per 15 minutes.
+const recoveryAttempts = new Map<string, { count: number; windowStart: number }>();
+function recoveryAllowed(usernameKey: string): boolean {
+  const now = Date.now();
+  const rec = recoveryAttempts.get(usernameKey);
+  if (!rec || now - rec.windowStart > 15 * 60 * 1000) {
+    recoveryAttempts.set(usernameKey, { count: 1, windowStart: now });
+    return true;
+  }
+  if (rec.count >= 10) return false;
+  rec.count += 1;
+  return true;
+}
+
+// ---------- Usernames: required for every account, every signup method ----------
+function usernameTaken(key: string, exceptId?: string): boolean {
+  return db.accounts.some((a) => a.usernameKey === key && a.id !== exceptId);
+}
+
+/** Friendly alternatives when a name is taken — all guaranteed available. */
+function suggestUsernames(base: string, exceptId?: string): string[] {
+  const clean = base.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 18) || "chaos";
+  const candidates = [
+    `${clean}_${crypto.randomBytes(2).toString("hex")}`,
+    `${clean}-2027`,
+    `the_real_${clean}`.slice(0, 24),
+    `${clean}_unhinged`.slice(0, 24),
+  ];
+  return candidates.filter((c) => validUsername(c) && !usernameTaken(c, exceptId)).slice(0, 3);
+}
+
+function usernameError(username: string, exceptId?: string): { error: string; suggestions?: string[] } | null {
+  const name = username.trim();
+  if (!validUsername(name)) {
+    return { error: "Usernames are 3–24 characters: letters, numbers, _ or -. No spaces, no drama." };
+  }
+  if (usernameTaken(name.toLowerCase(), exceptId)) {
+    return { error: `“${name}” is taken. Great minds, etc.`, suggestions: suggestUsernames(name, exceptId) };
+  }
+  return null;
+}
+
+function createSession(userId: string): string {
+  const token = crypto.randomBytes(32).toString("hex"); // 256-bit
+  const now = Date.now();
+  db.sessions[token] = {
+    userId,
+    created_at: new Date(now).toISOString(),
+    expires_at: new Date(now + SESSION_TTL_MS).toISOString()
+  };
+  saveData(db);
+  return token;
+}
+
+function getSessionUserId(token: string): string | null {
+  const s = db.sessions[token];
+  if (!s) return null;
+  if (Date.now() > Date.parse(s.expires_at)) {
+    delete db.sessions[token];
+    saveData(db);
+    return null;
+  }
+  return s.userId;
+}
+
+type AuthedRequest = express.Request & { userId: string; ud: UserData };
+
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const header = String(req.headers.authorization || "");
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) {
+    return res.status(401).json({ error: "Login required.", code: "AUTH_REQUIRED" });
+  }
+  const userId = getSessionUserId(token);
+  if (!userId || !db.users[userId]) {
+    return res.status(401).json({ error: "Session expired. Please log in again.", code: "SESSION_EXPIRED" });
+  }
+  (req as AuthedRequest).userId = userId;
+  (req as AuthedRequest).ud = db.users[userId];
+  next();
+}
+
+function validUsername(u: string): boolean {
+  return /^[A-Za-z0-9_-]{3,24}$/.test(u);
+}
+
+// ---------- Public auth routes ----------
+app.post("/api/auth/register", (req, res) => {
+  const username = String(req.body?.username || "");
+  const password = String(req.body?.password || "");
+  const uErr = usernameError(username);
+  if (uErr) {
+    const status = uErr.suggestions ? 409 : 400;
+    return res.status(status).json(uErr);
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters. Pick a good one — this guards your chaos." });
+  }
+  const name = username.trim();
+  const key = name.toLowerCase();
+  const id = `user_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
+  const now = new Date().toISOString();
+  const recoveryCode = generateRecoveryCode();
+  db.accounts.push({ id, username: name, usernameKey: key, passwordHash: hashPassword(password), recoveryHash: hashRecoveryCode(recoveryCode), created_at: now });
+  db.users[id] = freshUserData(id, name);
+  const token = createSession(id);
+  saveData(db);
+  res.json({ token, user: db.users[id].user, recoveryCode });
 });
 
-app.post("/api/user", (req, res) => {
-  db.user = { ...db.user, ...req.body, updated_at: new Date().toISOString() };
+app.post("/api/auth/login", (req, res) => {
+  const username = String(req.body?.username || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+  const acct = db.accounts.find((a) => a.usernameKey === username);
+  // One generic message: never reveal whether the username exists.
+  if (!acct || !verifyPassword(password, acct.passwordHash)) {
+    return res.status(401).json({ error: "Wrong username or password." });
+  }
+  if (!db.users[acct.id]) db.users[acct.id] = freshUserData(acct.id, acct.username);
+  const token = createSession(acct.id);
   saveData(db);
-  res.json(db.user);
+  res.json({ token, user: db.users[acct.id].user });
+});
+
+app.post("/api/auth/logout", requireAuth, (req, res) => {
+  const header = String(req.headers.authorization || "");
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (token && db.sessions[token]) {
+    delete db.sessions[token];
+    saveData(db);
+  }
+  res.json({ success: true });
+});
+
+// Password recovery: username + recovery code -> set a new password, rotate the code.
+// Rate-limited per username; responses stay generic so usernames can't be probed.
+app.post("/api/auth/recover", (req, res) => {
+  const usernameKey = String(req.body?.username || "").trim().toLowerCase();
+  const code = String(req.body?.recoveryCode || "");
+  const newPassword = String(req.body?.newPassword || "");
+  if (!recoveryAllowed(usernameKey || "blank")) {
+    return res.status(429).json({ error: "Too many attempts. Cool off for a bit and try again." });
+  }
+  const acct = db.accounts.find((a) => a.usernameKey === usernameKey);
+  if (!acct || !verifyRecoveryCode(code, acct.recoveryHash)) {
+    return res.status(401).json({ error: "That didn't verify. Check the username and recovery code and try again." });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "New password must be at least 8 characters. Pick a good one." });
+  }
+  acct.passwordHash = hashPassword(newPassword);
+  const newCode = generateRecoveryCode();
+  acct.recoveryHash = hashRecoveryCode(newCode);
+  // A password change kills every session — log in again everywhere.
+  for (const [tok, s] of Object.entries(db.sessions)) {
+    if (s.userId === acct.id) delete db.sessions[tok];
+  }
+  recoveryAttempts.delete(usernameKey);
+  saveData(db);
+  res.json({ success: true, recoveryCode: newCode });
+});
+
+// Logged-in rotation: mint a fresh recovery code, shown exactly once.
+app.post("/api/auth/recovery-code/rotate", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const acct = db.accounts.find((a) => a.id === ar.userId);
+  if (!acct) return res.status(404).json({ error: "Account not found." });
+  const newCode = generateRecoveryCode();
+  acct.recoveryHash = hashRecoveryCode(newCode);
+  saveData(db);
+  res.json({ recoveryCode: newCode });
+});
+
+// ================= OAUTH (Google / Facebook) + EMAIL AUTH =================
+// Local username/password + recovery codes keep working regardless.
+// Linking rule: an OAuth login whose verified email matches an existing
+// email account links to that account; otherwise a new account is created
+// (after the mandatory choose-your-username step).
+
+interface OAuthProviderConfig {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+}
+
+function oauthConfig(provider: "google" | "facebook"): OAuthProviderConfig | null {
+  if (provider === "google") {
+    const clientId = process.env.GOOGLE_CLIENT_ID || "";
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+    if (!clientId || !clientSecret) return null;
+    return {
+      clientId,
+      clientSecret,
+      redirectUri: process.env.GOOGLE_REDIRECT_URI || `${baseUrl()}/api/auth/oauth/google/callback`,
+    };
+  }
+  const clientId = process.env.FACEBOOK_APP_ID || "";
+  const clientSecret = process.env.FACEBOOK_APP_SECRET || "";
+  if (!clientId || !clientSecret) return null;
+  return {
+    clientId,
+    clientSecret,
+    redirectUri: process.env.FACEBOOK_REDIRECT_URI || `${baseUrl()}/api/auth/oauth/facebook/callback`,
+  };
+}
+
+// Public capability flags so the UI hides what isn't configured.
+app.get("/api/auth/config", (_req, res) => {
+  res.json({
+    google: !!oauthConfig("google"),
+    facebook: !!oauthConfig("facebook"),
+    email: true,
+    smtp: smtpConfigured(),
+  });
+});
+
+// Short-lived CSRF states and pending OAuth signups (single-process prototype).
+const oauthStates = new Map<string, { provider: string; createdAt: number }>();
+const oauthPending = new Map<string, {
+  provider: string; providerId: string; email: string | null;
+  emailVerified: boolean; displayName: string | null; createdAt: number;
+}>();
+
+app.get("/api/auth/oauth/:provider", (req, res) => {
+  const provider = req.params.provider;
+  if (provider !== "google" && provider !== "facebook") return res.status(404).send("Unknown provider.");
+  const cfg = oauthConfig(provider);
+  if (!cfg) return res.status(503).send(`${provider} login is not configured on this instance yet.`);
+  const state = crypto.randomBytes(16).toString("hex");
+  oauthStates.set(state, { provider, createdAt: Date.now() });
+  if (process.env.OAUTH_DEV_STUB === "1") {
+    // Dev/test only: skip the real provider, bounce straight to the callback.
+    return res.redirect(`${cfg.redirectUri}?code=devstub&state=${state}`);
+  }
+  const params = new URLSearchParams({
+    client_id: cfg.clientId,
+    redirect_uri: cfg.redirectUri,
+    response_type: "code",
+    scope: provider === "google" ? "openid email profile" : "email,public_profile",
+    state,
+  });
+  const url = provider === "google"
+    ? `https://accounts.google.com/o/oauth2/v2/auth?${params}`
+    : `https://www.facebook.com/v18.0/dialog/oauth?${params}`;
+  res.redirect(url);
+});
+
+interface OAuthProfile {
+  providerId: string;
+  email: string | null;
+  emailVerified: boolean;
+  displayName: string | null;
+}
+
+async function fetchOAuthProfile(provider: string, cfg: OAuthProviderConfig, code: string): Promise<OAuthProfile> {
+  if (process.env.OAUTH_DEV_STUB === "1" && code === "devstub") {
+    return {
+      providerId: `devstub-${provider}-123`,
+      email: `stub-${provider}@example.com`,
+      emailVerified: true,
+      displayName: `Stub ${provider}`,
+    };
+  }
+  const tokenUrl = provider === "google"
+    ? "https://oauth2.googleapis.com/token"
+    : "https://graph.facebook.com/v18.0/oauth/access_token";
+  const tokenRes = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      redirect_uri: cfg.redirectUri,
+      grant_type: "authorization_code",
+    }),
+  });
+  if (!tokenRes.ok) throw new Error("Token exchange failed.");
+  const tok = (await tokenRes.json()) as any;
+  const accessToken = tok.access_token;
+  if (!accessToken) throw new Error("No access token returned.");
+  if (provider === "google") {
+    const me = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!me.ok) throw new Error("Could not fetch Google profile.");
+    const p = (await me.json()) as any;
+    return {
+      providerId: String(p.sub),
+      email: p.email || null,
+      emailVerified: !!p.email_verified,
+      displayName: p.name || null,
+    };
+  }
+  const me = await fetch(
+    `https://graph.facebook.com/me?fields=id,name,email&access_token=${encodeURIComponent(accessToken)}`
+  );
+  if (!me.ok) throw new Error("Could not fetch Facebook profile.");
+  const p = (await me.json()) as any;
+  return {
+    providerId: String(p.id),
+    email: p.email || null,
+    emailVerified: !!p.email,
+    displayName: p.name || null,
+  };
+}
+
+app.get("/api/auth/oauth/:provider/callback", async (req, res) => {
+  const provider = req.params.provider;
+  try {
+    if (provider !== "google" && provider !== "facebook") return res.status(404).send("Unknown provider.");
+    const cfg = oauthConfig(provider);
+    if (!cfg) return res.status(503).send("OAuth is not configured on this instance.");
+    const { code, state } = req.query as Record<string, string>;
+    const st = state ? oauthStates.get(state) : undefined;
+    if (state) oauthStates.delete(state);
+    if (!st || st.provider !== provider || Date.now() - st.createdAt > 10 * 60 * 1000) {
+      return res.status(400).send(authPage("That login expired.", "OAuth sessions last 10 minutes. Hit the button again."));
+    }
+    if (!code) return res.status(400).send(authPage("Login cancelled.", "The provider didn't send us back a code. Try again whenever."));
+    const profile = await fetchOAuthProfile(provider, cfg, code);
+
+    // 1) Provider id already linked -> straight in.
+    let acct = db.accounts.find((a) =>
+      provider === "google" ? a.googleId === profile.providerId : a.facebookId === profile.providerId
+    );
+    // 2) Verified email matches an existing email account -> link it, straight in.
+    if (!acct && profile.email && profile.emailVerified) {
+      const key = profile.email.toLowerCase();
+      acct = db.accounts.find((a) => (a.email || "").toLowerCase() === key);
+      if (acct) {
+        if (provider === "google") acct.googleId = profile.providerId;
+        else acct.facebookId = profile.providerId;
+        acct.emailVerified = true;
+      }
+    }
+    if (acct) {
+      if (!db.users[acct.id]) db.users[acct.id] = freshUserData(acct.id, acct.username);
+      const token = createSession(acct.id);
+      saveData(db);
+      return res.redirect(`${baseUrl()}/#oauth=${token}`);
+    }
+    // 3) Brand new human: park the verified profile. No account exists until
+    // they choose a username — the app forces that step next.
+    const pendingKey = crypto.randomBytes(24).toString("hex");
+    oauthPending.set(pendingKey, {
+      provider,
+      providerId: profile.providerId,
+      email: profile.email,
+      emailVerified: profile.emailVerified,
+      displayName: profile.displayName,
+      createdAt: Date.now(),
+    });
+    saveData(db);
+    return res.redirect(`${baseUrl()}/#oauth_pending=${pendingKey}&provider=${provider}`);
+  } catch (e: any) {
+    return res.status(500).send(authPage("OAuth hiccup.", `Something broke talking to the provider: ${e?.message || e}`));
+  }
+});
+
+// Finalize an OAuth signup: the mandatory choose-your-username step.
+app.post("/api/auth/oauth/complete", (req, res) => {
+  const pendingKey = String(req.body?.pendingKey || "");
+  const pend = oauthPending.get(pendingKey);
+  if (!pend || Date.now() - pend.createdAt > 15 * 60 * 1000) {
+    if (pend) oauthPending.delete(pendingKey);
+    return res.status(400).json({ error: "That signup session expired. Hit the provider button again." });
+  }
+  const err = usernameError(String(req.body?.username || ""));
+  if (err) return res.status(409).json(err); // keep the pending session so they can retry a suggestion
+  oauthPending.delete(pendingKey);
+  const username = String(req.body.username).trim();
+
+  // Re-check email linking at completion time (it may have been registered meanwhile).
+  let acct: AccountUser | undefined;
+  if (pend.email && pend.emailVerified) {
+    const key = pend.email.toLowerCase();
+    acct = db.accounts.find((a) => (a.email || "").toLowerCase() === key);
+  }
+  if (acct) {
+    // Linked to an existing account mid-flow — it already has a username.
+    if (pend.provider === "google") acct.googleId = pend.providerId;
+    else acct.facebookId = pend.providerId;
+    if (!db.users[acct.id]) db.users[acct.id] = freshUserData(acct.id, acct.username);
+    const token = createSession(acct.id);
+    saveData(db);
+    return res.json({ token, user: db.users[acct.id].user });
+  }
+
+  const id = `user_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
+  const now = new Date().toISOString();
+  const recoveryCode = generateRecoveryCode();
+  acct = {
+    id,
+    username,
+    usernameKey: username.toLowerCase(),
+    passwordHash: "", // OAuth-only until a password is set via recovery
+    recoveryHash: hashRecoveryCode(recoveryCode),
+    email: pend.email || undefined,
+    emailVerified: pend.emailVerified || undefined,
+    created_at: now,
+  };
+  if (pend.provider === "google") acct.googleId = pend.providerId;
+  else acct.facebookId = pend.providerId;
+  db.accounts.push(acct);
+  db.users[id] = freshUserData(id, username);
+  saveData(db);
+  const token = createSession(id);
+  res.json({ token, user: db.users[id].user, recoveryCode });
+});
+
+// ---------- Email auth ----------
+
+function validEmail(e: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
+}
+
+function issueEmailToken(accountId: string, kind: "verify" | "reset", email: string, ttlMs: number): string {
+  const token = crypto.randomBytes(32).toString("hex");
+  const key = crypto.createHash("sha256").update(token).digest("hex");
+  db.emailTokens[key] = { accountId, kind, email, expires_at: new Date(Date.now() + ttlMs).toISOString() };
+  saveData(db);
+  return token;
+}
+
+function consumeEmailToken(token: string, kind: "verify" | "reset"): EmailTokenRecord | null {
+  const key = crypto.createHash("sha256").update(String(token || "")).digest("hex");
+  const rec = db.emailTokens[key];
+  if (!rec || rec.kind !== kind) return null;
+  delete db.emailTokens[key];
+  if (Date.now() > Date.parse(rec.expires_at)) {
+    saveData(db);
+    return null;
+  }
+  saveData(db);
+  return rec;
+}
+
+function authPage(title: string, body: string, ok = false): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} — Off*Script</title></head>
+<body style="font-family:Georgia,serif;background:#faf5eb;color:#1c1917;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px">
+<div style="max-width:480px;background:#fffdfa;border:2px solid #1c1917;border-radius:16px;padding:32px;text-align:center">
+<div style="font-size:32px">${ok ? "✅" : "⚠️"}</div>
+<h1 style="font-size:20px">${title}</h1><p style="font-size:14px;line-height:1.6">${body}</p>
+<p><a href="${baseUrl()}/" style="color:#e11d48;font-weight:bold">Back to the app →</a></p>
+</div></body></html>`;
+}
+
+function resetFormPage(token: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Set a new password — Off*Script</title></head>
+<body style="font-family:Georgia,serif;background:#faf5eb;color:#1c1917;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px">
+<div style="max-width:440px;width:100%;background:#fffdfa;border:2px solid #1c1917;border-radius:16px;padding:32px">
+<div style="font-size:32px;text-align:center">⚡</div>
+<h1 style="font-size:20px;text-align:center">Set a new password</h1>
+<form method="POST" action="/api/auth/email/reset">
+<input type="hidden" name="token" value="${token}">
+<label style="display:block;font-size:12px;font-weight:bold;margin:12px 0 4px">New password (8+ characters)</label>
+<input type="password" name="newPassword" required minlength="8" style="width:100%;padding:10px;border:1px solid #d6d3d1;border-radius:10px;box-sizing:border-box">
+<button type="submit" style="width:100%;margin-top:16px;background:#e11d48;color:#fff;border:none;padding:12px;border-radius:12px;font-weight:bold;cursor:pointer">Set new password</button>
+</form></div></body></html>`;
+}
+
+app.post("/api/auth/email/register", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const username = String(req.body?.username || "");
+  const password = String(req.body?.password || "");
+  if (!validEmail(email)) return res.status(400).json({ error: "That doesn't look like an email address." });
+  const uErr = usernameError(username);
+  if (uErr) return res.status(uErr.suggestions ? 409 : 400).json(uErr);
+  if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters." });
+  if (db.accounts.some((a) => (a.email || "").toLowerCase() === email)) {
+    return res.status(409).json({ error: "That email is already registered. Try logging in — or the forgot-password flow." });
+  }
+  const name = username.trim();
+  const id = `user_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
+  const now = new Date().toISOString();
+  const recoveryCode = generateRecoveryCode();
+  const smtp = smtpConfigured();
+  const acct: AccountUser = {
+    id,
+    username: name,
+    usernameKey: name.toLowerCase(),
+    passwordHash: hashPassword(password),
+    recoveryHash: hashRecoveryCode(recoveryCode),
+    email,
+    emailVerified: smtp ? false : true,
+    created_at: now,
+  };
+  db.accounts.push(acct);
+  db.users[id] = freshUserData(id, name);
+  let emailed = false;
+  if (smtp) {
+    try {
+      const token = issueEmailToken(id, "verify", email, 24 * 3600 * 1000);
+      await sendMail(verificationEmail(email, `${baseUrl()}/api/auth/email/verify?token=${token}`));
+      emailed = true;
+    } catch (e: any) {
+      console.warn("Verification email failed to send:", e?.message);
+    }
+  } else {
+    console.warn(`[auth] SMTP unconfigured — email verification skipped for ${email} (auto-verified).`);
+  }
+  const token = createSession(id);
+  saveData(db);
+  res.json({ token, user: db.users[id].user, recoveryCode, emailVerified: acct.emailVerified, verificationEmailed: emailed });
+});
+
+app.post("/api/auth/email/login", (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+  const acct = db.accounts.find((a) => (a.email || "").toLowerCase() === email);
+  if (!acct || !verifyPassword(password, acct.passwordHash)) {
+    return res.status(401).json({ error: "Wrong email or password." });
+  }
+  if (!db.users[acct.id]) db.users[acct.id] = freshUserData(acct.id, acct.username);
+  const token = createSession(acct.id);
+  saveData(db);
+  res.json({ token, user: db.users[acct.id].user });
+});
+
+app.get("/api/auth/email/verify", (req, res) => {
+  const rec = consumeEmailToken(String(req.query.token || ""), "verify");
+  if (!rec) {
+    return res.status(400).send(authPage("Link's no good.", "That verification link is invalid or expired. Request a fresh one from inside the app."));
+  }
+  const acct = db.accounts.find((a) => a.id === rec.accountId);
+  if (!acct) return res.status(400).send(authPage("Account's gone.", "The account for that link doesn't exist anymore."));
+  acct.emailVerified = true;
+  saveData(db);
+  res.send(authPage("Email verified. You're official.", "Head back to the app and carry on being unhinged.", true));
+});
+
+app.post("/api/auth/email/resend-verification", requireAuth, async (req, res) => {
+  const ar = req as AuthedRequest;
+  const acct = db.accounts.find((a) => a.id === ar.userId);
+  if (!acct?.email) return res.status(400).json({ error: "No email on this account." });
+  if (acct.emailVerified) return res.json({ already: true });
+  if (!smtpConfigured()) return res.status(503).json({ error: "Email sending isn't configured on this instance." });
+  const token = issueEmailToken(acct.id, "verify", acct.email, 24 * 3600 * 1000);
+  await sendMail(verificationEmail(acct.email, `${baseUrl()}/api/auth/email/verify?token=${token}`));
+  res.json({ sent: true });
+});
+
+app.post("/api/auth/email/forgot", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (!smtpConfigured()) {
+    return res.json({
+      fallback: "recovery-code",
+      message: "Email sending isn't configured on this instance — use your recovery code instead (log in screen → Forgot password?).",
+    });
+  }
+  // Same response either way so email addresses can't be probed.
+  const acct = db.accounts.find((a) => (a.email || "").toLowerCase() === email);
+  if (acct?.email) {
+    const token = issueEmailToken(acct.id, "reset", acct.email, 3600 * 1000);
+    try {
+      await sendMail(resetEmail(acct.email, `${baseUrl()}/api/auth/email/reset?token=${token}`));
+    } catch (e: any) {
+      console.warn("Reset email failed:", e?.message);
+    }
+  }
+  res.json({ sent: true, message: "If that email is registered, a reset link is on its way. Check your inbox (and the spam dungeon)." });
+});
+
+app.get("/api/auth/email/reset", (req, res) => {
+  const token = String(req.query.token || "");
+  const key = crypto.createHash("sha256").update(token).digest("hex");
+  const rec = db.emailTokens[key];
+  const valid = rec && rec.kind === "reset" && Date.now() <= Date.parse(rec.expires_at);
+  if (!valid) return res.status(400).send(authPage("Link's no good.", "That reset link is invalid or expired. Request a fresh one."));
+  res.send(resetFormPage(token));
+});
+
+app.post("/api/auth/email/reset", express.urlencoded({ extended: false }), (req, res) => {
+  const rec = consumeEmailToken(String(req.body?.token || ""), "reset");
+  const newPassword = String(req.body?.newPassword || "");
+  if (!rec) return res.status(400).send(authPage("Link's no good.", "That reset link is invalid or already used."));
+  if (newPassword.length < 8) {
+    return res.status(400).send(authPage("Too short.", "Password must be at least 8 characters. Hit back and try again."));
+  }
+  const acct = db.accounts.find((a) => a.id === rec.accountId);
+  if (!acct) return res.status(400).send(authPage("Account's gone.", "The account for that link doesn't exist anymore."));
+  acct.passwordHash = hashPassword(newPassword);
+  const newCode = generateRecoveryCode();
+  acct.recoveryHash = hashRecoveryCode(newCode);
+  for (const [tok, s] of Object.entries(db.sessions)) {
+    if (s.userId === acct.id) delete db.sessions[tok];
+  }
+  saveData(db);
+  res.send(authPage(
+    "Password reset. Fresh start.",
+    "Log in with the new password. Your recovery code was also rotated — grab a fresh one from Identity Base → Account Safety.",
+    true
+  ));
+});
+
+// ---------- Username changes (logged in) ----------
+app.post("/api/auth/username", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const acct = db.accounts.find((a) => a.id === ar.userId);
+  if (!acct) return res.status(404).json({ error: "Account not found." });
+  const now = Date.now();
+  const history = (acct.usernameHistory || []).filter((t) => now - Date.parse(t) < 24 * 3600 * 1000);
+  if (history.length >= 3) {
+    return res.status(429).json({ error: "Whoa — 3 username changes in 24 hours is the limit. Sit with one for a bit." });
+  }
+  const err = usernameError(String(req.body?.username || ""), acct.id);
+  if (err) return res.status(err.suggestions ? 409 : 400).json(err);
+  const username = String(req.body.username).trim();
+  const oldUsername = acct.username;
+  acct.username = username;
+  acct.usernameKey = username.toLowerCase();
+  acct.usernameHistory = [...history, new Date(now).toISOString()];
+  // The username is what's displayed everywhere — update denormalized copies.
+  for (const p of db.wallPosts || []) if (p.userId === acct.id) p.username = username;
+  for (const m of db.dmMessages || []) {
+    if (m.fromId === acct.id) m.fromUsername = username;
+    if (m.toId === acct.id) m.toUsername = username;
+  }
+  // If the profile display name was still the old username (or blank), follow the rename
+  // so the header/profile show the new name immediately. A custom display name is left alone.
+  const profile = db.users[acct.id]?.user;
+  if (profile && (!profile.chaos_name || profile.chaos_name === oldUsername)) {
+    profile.chaos_name = username;
+  }
+  saveData(db);
+  res.json({ username, chaosName: db.users[acct.id]?.user?.chaos_name || username });
+});
+
+// ---------- Health check (public) ----------
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, time: new Date().toISOString() });
+});
+
+// Strip protected fields so PATCH bodies can't overwrite record identity.
+function sanitizePatch(body: any): Record<string, any> {
+  const { id, created_at, awarded_at, ...rest } = body || {};
+  return rest;
+}
+
+// ================= API ROUTES (all require auth unless noted) =================
+
+app.get("/api/auth/me", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const acct = db.accounts.find((a) => a.id === ar.userId);
+  res.json({ ...ar.ud.user, email: acct?.email || null, emailVerified: !!acct?.emailVerified });
+});
+
+// Content packs are shared and read-only.
+app.get("/api/content-packs", requireAuth, (_req, res) => {
+  res.json(Object.values(db.contentPacks || {}));
+});
+
+app.get("/api/entitlements", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const packIds = ar.ud.userEntitlements || [];
+  const redeemedAt: Record<string, string> = {};
+  for (const t of Object.values<any>(db.qrTokens || {})) {
+    if (t.redeemed_by_user_id === ar.userId && t.pack_id) redeemedAt[t.pack_id] = t.redeemed_at || "";
+  }
+  const entitlements = packIds
+    .map((packId: string) => db.contentPacks?.[packId])
+    .filter(Boolean)
+    .map((pack: any) => ({
+      user_id: ar.userId,
+      pack_id: pack.pack_id,
+      unlocked_at: redeemedAt[pack.pack_id] || "",
+      title: pack.title,
+      assets_url: pack.assets_url
+    }));
+  res.json(entitlements);
+});
+
+app.post("/api/redeem-token", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const userId = ar.userId;
+  const tokenId = String(req.body?.tokenId || "").trim().toUpperCase();
+  if (!tokenId) {
+    return res.status(400).json({ success: false, error: "A QR token is required." });
+  }
+
+  const token = db.qrTokens?.[tokenId];
+  if (!token) {
+    return res.status(404).json({ success: false, error: "Invalid QR code." });
+  }
+  if (token.is_redeemed) {
+    return res.status(400).json({ success: false, error: "This QR code has already been claimed." });
+  }
+
+  const pack = db.contentPacks?.[token.pack_id];
+  if (!pack) {
+    return res.status(500).json({ success: false, error: "This QR code points to an unavailable content pack." });
+  }
+
+  // This synchronous check-and-write is atomic within the current single-process prototype.
+  // Production must replace it with a database transaction / conditional UPDATE.
+  token.is_redeemed = true;
+  token.redeemed_by_user_id = userId;
+  token.redeemed_at = new Date().toISOString();
+  if (!ar.ud.userEntitlements.includes(pack.pack_id)) {
+    ar.ud.userEntitlements.push(pack.pack_id);
+  }
+  saveData(db);
+
+  return res.json({ success: true, packId: pack.pack_id, title: pack.title });
+});
+
+// User profile
+app.get("/api/user", requireAuth, (req, res) => {
+  res.json((req as AuthedRequest).ud.user);
+});
+
+app.post("/api/user", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const { id, created_at, ...safe } = req.body || {};
+  ar.ud.user = { ...ar.ud.user, ...safe, updated_at: new Date().toISOString() };
+  saveData(db);
+  res.json(ar.ud.user);
 });
 
 // Goals
-app.get("/api/goals", (req, res) => {
-  res.json(db.goals || []);
+app.get("/api/goals", requireAuth, (req, res) => {
+  res.json((req as AuthedRequest).ud.goals || []);
 });
 
-app.post("/api/goals", (req, res) => {
-  if ((db.goals || []).length >= 6) {
+app.post("/api/goals", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  if ((ar.ud.goals || []).length >= 6) {
     return res.status(400).json({ error: "Strict maximum of 6 goals allowed in the Big 6 Os!" });
   }
   const newGoal = {
@@ -347,33 +1082,38 @@ app.post("/api/goals", (req, res) => {
     is_completed: false,
     created_at: new Date().toISOString()
   };
-  db.goals.push(newGoal);
+  ar.ud.goals.push(newGoal);
   saveData(db);
   res.json(newGoal);
 });
 
-app.patch("/api/goals/:id", (req, res) => {
+app.patch("/api/goals/:id", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
   const { id } = req.params;
-  const index = db.goals.findIndex((g: any) => g.id === id);
+  const index = ar.ud.goals.findIndex((g: any) => g.id === id);
   if (index === -1) return res.status(404).json({ error: "Goal not found" });
-  db.goals[index] = { ...db.goals[index], ...req.body };
+  ar.ud.goals[index] = { ...ar.ud.goals[index], ...sanitizePatch(req.body) };
   saveData(db);
-  res.json(db.goals[index]);
+  res.json(ar.ud.goals[index]);
 });
 
-app.delete("/api/goals/:id", (req, res) => {
+app.delete("/api/goals/:id", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
   const { id } = req.params;
-  db.goals = db.goals.filter((g: any) => g.id !== id);
+  const before = (ar.ud.goals || []).length;
+  ar.ud.goals = ar.ud.goals.filter((g: any) => g.id !== id);
+  if (ar.ud.goals.length === before) return res.status(404).json({ error: "Goal not found" });
   saveData(db);
   res.json({ success: true });
 });
 
 // Anti-Goals
-app.get("/api/anti-goals", (req, res) => {
-  res.json(db.antiGoals || []);
+app.get("/api/anti-goals", requireAuth, (req, res) => {
+  res.json((req as AuthedRequest).ud.antiGoals || []);
 });
 
-app.post("/api/anti-goals", (req, res) => {
+app.post("/api/anti-goals", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
   const newAntiGoal = {
     id: `antigoal_${Date.now()}`,
     title: req.body.title || "Untitled Anti-Goal",
@@ -382,46 +1122,345 @@ app.post("/api/anti-goals", (req, res) => {
     is_completed: Boolean(req.body.is_completed),
     created_at: new Date().toISOString()
   };
-  if (!db.antiGoals) db.antiGoals = [];
-  db.antiGoals.push(newAntiGoal);
+  ar.ud.antiGoals.push(newAntiGoal);
   saveData(db);
   res.json(newAntiGoal);
 });
 
-app.patch("/api/anti-goals/:id", (req, res) => {
+app.patch("/api/anti-goals/:id", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
   const { id } = req.params;
-  if (!db.antiGoals) db.antiGoals = [];
-  const index = db.antiGoals.findIndex((ag: any) => ag.id === id);
+  const index = ar.ud.antiGoals.findIndex((ag: any) => ag.id === id);
   if (index === -1) return res.status(404).json({ error: "Anti-goal not found" });
-  db.antiGoals[index] = { ...db.antiGoals[index], ...req.body };
+  ar.ud.antiGoals[index] = { ...ar.ud.antiGoals[index], ...sanitizePatch(req.body) };
   saveData(db);
-  res.json(db.antiGoals[index]);
+  res.json(ar.ud.antiGoals[index]);
 });
 
-app.delete("/api/anti-goals/:id", (req, res) => {
+app.delete("/api/anti-goals/:id", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
   const { id } = req.params;
-  if (!db.antiGoals) db.antiGoals = [];
-  db.antiGoals = db.antiGoals.filter((ag: any) => ag.id !== id);
+  const before = ar.ud.antiGoals.length;
+  ar.ud.antiGoals = ar.ud.antiGoals.filter((ag: any) => ag.id !== id);
+  if (ar.ud.antiGoals.length === before) return res.status(404).json({ error: "Anti-goal not found" });
+  saveData(db);
+  res.json({ success: true });
+});
+
+// Chaos Points ledger
+const CHAOS_POINT_VALUES: Record<string, number> = {
+  daily_log: 10,
+  micro_dare: 15,
+  weekly_debrief: 25,
+  antigoal_quashed: 30,
+  goal_completed: 50,
+  diagnostic_run: 5,
+  share_fired: 5
+};
+
+app.get("/api/points", requireAuth, (req, res) => {
+  res.json((req as AuthedRequest).ud.chaosPoints || []);
+});
+
+app.post("/api/points/award", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const action = String(req.body?.action || "").trim();
+  const ref = String(req.body?.ref || "").trim();
+  const label = String(req.body?.label || action).trim();
+  if (!action || !CHAOS_POINT_VALUES[action]) {
+    return res.status(400).json({ error: "Unknown point action." });
+  }
+  // Dedupe: one award per action+ref so refreshes and double-saves don't farm points.
+  const dedupeRef = ref || `${action}:${new Date().toISOString().split("T")[0]}`;
+  const existing = ar.ud.chaosPoints.find((p: any) => p.ref === dedupeRef && p.action === action);
+  const total = () => ar.ud.chaosPoints.reduce((s: number, p: any) => s + p.points, 0);
+  if (existing) {
+    return res.json({ entry: existing, total: total(), duplicate: true });
+  }
+  const entry = {
+    id: `pts_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    action,
+    points: CHAOS_POINT_VALUES[action],
+    ref: dedupeRef,
+    label,
+    awarded_at: new Date().toISOString()
+  };
+  ar.ud.chaosPoints.push(entry);
+  saveData(db);
+  res.json({ entry, total: total(), duplicate: false });
+});
+
+// Flight Crew contacts
+app.get("/api/flight-crew", requireAuth, (req, res) => {
+  res.json((req as AuthedRequest).ud.flightCrew || []);
+});
+
+app.post("/api/flight-crew", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const name = String(req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Contact name is required." });
+  const contact = {
+    id: `crew_${Date.now()}`,
+    name,
+    role: String(req.body?.role || "Co-conspirator"),
+    notes: String(req.body?.notes || ""),
+    created_at: new Date().toISOString()
+  };
+  ar.ud.flightCrew.push(contact);
+  saveData(db);
+  res.json(contact);
+});
+
+app.patch("/api/flight-crew/:id", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const { id } = req.params;
+  const index = ar.ud.flightCrew.findIndex((c: any) => c.id === id);
+  if (index === -1) return res.status(404).json({ error: "Contact not found" });
+  const updates = sanitizePatch(req.body);
+  if (updates.name !== undefined) {
+    updates.name = String(updates.name).trim();
+    if (!updates.name) return res.status(400).json({ error: "Contact name cannot be blank." });
+  }
+  if (updates.role !== undefined) updates.role = String(updates.role);
+  if (updates.notes !== undefined) updates.notes = String(updates.notes);
+  ar.ud.flightCrew[index] = { ...ar.ud.flightCrew[index], ...updates };
+  saveData(db);
+  res.json(ar.ud.flightCrew[index]);
+});
+
+app.delete("/api/flight-crew/:id", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const { id } = req.params;
+  const before = ar.ud.flightCrew.length;
+  ar.ud.flightCrew = ar.ud.flightCrew.filter((c: any) => c.id !== id);
+  if (ar.ud.flightCrew.length === before) return res.status(404).json({ error: "Contact not found" });
+  saveData(db);
+  res.json({ success: true });
+});
+
+// Full backup export / import (used by Google Drive backup).
+// Backups are per-user: you export and restore your own namespace only.
+app.get("/api/backup/export", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  res.json({
+    exported_at: new Date().toISOString(),
+    app: "off-script-life-os",
+    user_id: ar.userId,
+    data: ar.ud
+  });
+});
+
+app.post("/api/backup/import", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const payload = req.body?.data || req.body;
+  if (!payload || typeof payload !== "object" || !payload.user) {
+    return res.status(400).json({ error: "That file doesn't look like an Off*Script backup." });
+  }
+  db.users[ar.userId] = normalizeUserData(payload);
+  // An imported backup can never change who you are: force the profile's
+  // internal id back to the authenticated account.
+  db.users[ar.userId].user.id = ar.userId;
+  saveData(db);
+  res.json({ success: true, restored_at: new Date().toISOString() });
+});
+
+// ---------- Reminders: per-user settings, server-side due computation ----------
+// Settings live on the profile (reminder_* fields). The server computes
+// due-ness on its own clock — for a self-hosted prototype that clock is the
+// deployer's machine. True push notifications need a deployer's push setup;
+// this endpoint powers the in-app bell/door badge instead.
+app.get("/api/reminders/due", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const u = ar.ud.user || {};
+  const settings: ReminderSettings = {
+    dailyEnabled: !!u.reminder_daily_enabled,
+    dailyTime: typeof u.reminder_daily_time === "string" ? u.reminder_daily_time : "20:00",
+    weeklyEnabled: !!u.reminder_weekly_enabled,
+    weeklyDay: Number.isInteger(u.reminder_weekly_day) ? u.reminder_weekly_day : 0,
+    weeklyTime: typeof u.reminder_weekly_time === "string" ? u.reminder_weekly_time : "18:00",
+  };
+  const entryDates = Object.keys(ar.ud.dailyEntries || {});
+  const debriefWeeks = Object.values(ar.ud.flightDebriefs || {})
+    .map((d: any) => Number(d.week_number))
+    .filter(Number.isFinite);
+  const due = computeDueReminders(settings, entryDates, debriefWeeks, new Date());
+  res.json({ due, settings, server_time: new Date().toISOString() });
+});
+
+// ---------- The Chaos Wall: shared community board ----------
+// Visible to every registered user on this instance. No moderation queue in
+// this prototype — fine for a private/friends deployment, not for public.
+const WALL_MAX = 500;
+
+app.get("/api/wall", requireAuth, (_req, res) => {
+  const posts = [...(db.wallPosts || [])]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, 200);
+  res.json(posts);
+});
+
+app.post("/api/wall", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const text = String(req.body?.text || "").trim();
+  if (!text) return res.status(400).json({ error: "Empty screams echo nowhere. Write something first." });
+  if (text.length > WALL_MAX) {
+    return res.status(400).json({ error: `Keep it under ${WALL_MAX} characters. Scream concisely.` });
+  }
+  const acct = db.accounts.find((a) => a.id === ar.userId);
+  const post: WallPost = {
+    id: `wall_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`,
+    userId: ar.userId,
+    username: acct?.username || "anonymous",
+    text,
+    created_at: new Date().toISOString(),
+  };
+  db.wallPosts = db.wallPosts || [];
+  db.wallPosts.push(post);
+  saveData(db);
+  res.json(post);
+});
+
+app.delete("/api/wall/:id", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const idx = (db.wallPosts || []).findIndex((p) => p.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: "That post is gone. The void ate it." });
+  if (db.wallPosts[idx].userId !== ar.userId) {
+    return res.status(403).json({ error: "That's not your scream to unscream." });
+  }
+  db.wallPosts.splice(idx, 1);
+  saveData(db);
+  res.json({ success: true });
+});
+
+// ---------- Inbox: one-to-one DMs ----------
+const DM_MAX = 2000;
+
+function inboxThreads(userId: string) {
+  const msgs = (db.dmMessages || []).filter((m) => m.fromId === userId || m.toId === userId);
+  const byPartner = new Map<string, DmMessage[]>();
+  for (const m of msgs) {
+    const partnerId = m.fromId === userId ? m.toId : m.fromId;
+    if (!byPartner.has(partnerId)) byPartner.set(partnerId, []);
+    byPartner.get(partnerId)!.push(m);
+  }
+  const out = [];
+  for (const [partnerId, list] of byPartner) {
+    list.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const last = list[list.length - 1];
+    const watermark = (db.dmRead[userId] && db.dmRead[userId][partnerId]) || "";
+    const unread = list.filter((m) => m.fromId === partnerId && m.created_at > watermark).length;
+    const acct = db.accounts.find((a) => a.id === partnerId);
+    const partnerUsername = acct?.username || (last.fromId === partnerId ? last.fromUsername : last.toUsername);
+    out.push({
+      partnerId,
+      partnerUsername,
+      lastText: last.text,
+      lastAt: last.created_at,
+      lastFromMe: last.fromId === userId,
+      unread,
+    });
+  }
+  out.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  return out;
+}
+
+// User directory: usernames only — no emails exist for local accounts, and we
+// don't leak them for email accounts either.
+app.get("/api/users/directory", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  res.json(
+    db.accounts
+      .filter((a) => {
+        if (a.id === ar.userId || a.id === "legacy") return false;
+        // Only real, usable accounts: password set, or OAuth/email linked.
+        return a.passwordHash !== "" || !!a.googleId || !!a.facebookId || !!a.email;
+      })
+      .map((a) => ({ id: a.id, username: a.username }))
+      .sort((x, y) => x.username.localeCompare(y.username))
+  );
+});
+
+app.get("/api/inbox/threads", requireAuth, (req, res) => {
+  res.json(inboxThreads((req as AuthedRequest).userId));
+});
+
+app.get("/api/inbox/threads/:partnerId", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const partnerId = req.params.partnerId;
+  const messages = (db.dmMessages || [])
+    .filter(
+      (m) =>
+        (m.fromId === ar.userId && m.toId === partnerId) ||
+        (m.fromId === partnerId && m.toId === ar.userId)
+    )
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  // Reading marks the thread read.
+  if (!db.dmRead[ar.userId]) db.dmRead[ar.userId] = {};
+  db.dmRead[ar.userId][partnerId] = new Date().toISOString();
+  saveData(db);
+  const acct = db.accounts.find((a) => a.id === partnerId);
+  res.json({
+    partner: { id: partnerId, username: acct?.username || "unknown" },
+    messages,
+  });
+});
+
+app.post("/api/inbox/messages", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const toId = String(req.body?.toId || "");
+  const text = String(req.body?.text || "").trim();
+  if (!text) return res.status(400).json({ error: "Can't send an empty message. The void has standards." });
+  if (text.length > DM_MAX) {
+    return res.status(400).json({ error: `Keep it under ${DM_MAX} characters. Write a letter, not a novel.` });
+  }
+  if (toId === ar.userId) return res.status(400).json({ error: "DMing yourself is just journaling. The flight log is that way." });
+  const recipient = db.accounts.find((a) => a.id === toId && a.id !== "legacy");
+  if (!recipient) return res.status(404).json({ error: "That user doesn't exist." });
+  const sender = db.accounts.find((a) => a.id === ar.userId);
+  const msg: DmMessage = {
+    id: `dm_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`,
+    fromId: ar.userId,
+    fromUsername: sender?.username || "anonymous",
+    toId,
+    toUsername: recipient.username,
+    text,
+    created_at: new Date().toISOString(),
+  };
+  db.dmMessages = db.dmMessages || [];
+  db.dmMessages.push(msg);
+  saveData(db);
+  res.json(msg);
+});
+
+app.delete("/api/inbox/messages/:id", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const idx = (db.dmMessages || []).findIndex((m) => m.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: "Message not found." });
+  if (db.dmMessages[idx].fromId !== ar.userId) {
+    return res.status(403).json({ error: "You can only delete messages you sent." });
+  }
+  db.dmMessages.splice(idx, 1);
   saveData(db);
   res.json({ success: true });
 });
 
 // Daily entries
-app.get("/api/entries", (req, res) => {
-  res.json(Object.values(db.dailyEntries));
+app.get("/api/entries", requireAuth, (req, res) => {
+  res.json(Object.values((req as AuthedRequest).ud.dailyEntries));
 });
 
-app.get("/api/entries/:date", (req, res) => {
-  const entry = db.dailyEntries[req.params.date];
+app.get("/api/entries/:date", requireAuth, (req, res) => {
+  const entry = (req as AuthedRequest).ud.dailyEntries[req.params.date];
   if (!entry) {
     return res.json(null);
   }
   res.json(entry);
 });
 
-app.post("/api/entries", (req, res) => {
+app.post("/api/entries", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
   const date = req.body.entry_date || new Date().toISOString().split("T")[0];
-  const existing = db.dailyEntries[date] || {};
+  const existing = ar.ud.dailyEntries[date] || {};
   const updated = {
     ...existing,
     ...req.body,
@@ -429,22 +1468,23 @@ app.post("/api/entries", (req, res) => {
     entry_date: date,
     updated_at: new Date().toISOString()
   };
-  db.dailyEntries[date] = updated;
+  ar.ud.dailyEntries[date] = updated;
   saveData(db);
   res.json(updated);
 });
 
 // Snapshots
-app.get("/api/snapshots", (req, res) => {
-  res.json(db.personalitySnapshots || []);
+app.get("/api/snapshots", requireAuth, (req, res) => {
+  res.json((req as AuthedRequest).ud.personalitySnapshots || []);
 });
 
 // Weekly Flight Debriefs
-app.get("/api/flight-debriefs", (req, res) => {
-  res.json(Object.values(db.flightDebriefs || {}));
+app.get("/api/flight-debriefs", requireAuth, (req, res) => {
+  res.json(Object.values((req as AuthedRequest).ud.flightDebriefs || {}));
 });
 
-app.post("/api/flight-debriefs", (req, res) => {
+app.post("/api/flight-debriefs", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
   const weekNum = String(req.body.week_number || 1);
   const debrief = {
     id: `debrief_w${weekNum}`,
@@ -452,25 +1492,30 @@ app.post("/api/flight-debriefs", (req, res) => {
     ...req.body,
     updated_at: new Date().toISOString()
   };
-  db.flightDebriefs[weekNum] = debrief;
+  ar.ud.flightDebriefs[weekNum] = debrief;
   saveData(db);
   res.json(debrief);
 });
 
 // Monthly Money Map
-app.get("/api/money-maps/:yearMonth", (req, res) => {
-  const key = req.params.yearMonth; // "2027-01"
-  res.json(db.moneyMaps[key] || null);
+app.get("/api/money-maps/all", requireAuth, (req, res) => {
+  res.json(Object.values((req as AuthedRequest).ud.moneyMaps || {}));
 });
 
-app.post("/api/money-maps", (req, res) => {
+app.get("/api/money-maps/:yearMonth", requireAuth, (req, res) => {
+  const key = req.params.yearMonth; // "2027-01"
+  res.json((req as AuthedRequest).ud.moneyMaps[key] || null);
+});
+
+app.post("/api/money-maps", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
   const key = `${req.body.year || 2027}-${String(req.body.month || 1).padStart(2, '0')}`;
   const map = {
     id: `mm_${key}`,
     ...req.body,
     updated_at: new Date().toISOString()
   };
-  db.moneyMaps[key] = map;
+  ar.ud.moneyMaps[key] = map;
   saveData(db);
   res.json(map);
 });
@@ -478,7 +1523,8 @@ app.post("/api/money-maps", (req, res) => {
 // ================= MEI-STYLE NLP DIAGNOSTIC ENGINE =================
 // Analyzes user's relationship with themselves from field notes, rants, and checkins
 
-app.post("/api/diagnose", async (req, res) => {
+app.post("/api/diagnose", requireAuth, async (req, res) => {
+  const ar = req as AuthedRequest;
   const { entry_date, evening_notes, morning_intention, midday_checkin, chaos_score, user_profile } = req.body;
 
   const textToAnalyze = `
@@ -494,17 +1540,20 @@ MIDDAY CHECK-IN:
 SELF-REPORTED CHAOS SCORE (1-10): ${chaos_score || 5}
 
 USER CHAOS MANTRA & IDENTITY:
-Name: ${user_profile?.chaos_name || db.user.chaos_name}
-Word of Year: ${user_profile?.word_of_the_year || db.user.word_of_the_year}
-What I'm done pretending about: ${user_profile?.what_done_pretending || db.user.what_done_pretending}
+Name: ${user_profile?.chaos_name || ar.ud.user.chaos_name}
+Word of Year: ${user_profile?.word_of_the_year || ar.ud.user.word_of_the_year}
+What I'm done pretending about: ${user_profile?.what_done_pretending || ar.ud.user.what_done_pretending}
 `;
 
-  // Try calling Gemini API via @google/genai SDK
-  const ai = getGeminiClient();
-  if (ai) {
+  // Try calling Gemini API via @google/genai SDK — ONLY with the user's
+  // explicit Google Gemini consent (X-AI-Consent: granted). Otherwise fall
+  // through to the local heuristic engine below; declining never blocks this.
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (apiKey && aiConsentGranted(req)) {
     try {
+      const ai = new GoogleGenAI({ apiKey });
       const prompt = `
-You are the core intelligence of the "Mei-Style Relationship-with-Self Personality Diagnostic Engine" inside the planner companion app "2027 Life OS: Off Script (Chaos Year Edition)".
+You are the core intelligence of the "Mei-Style Relationship-with-Self Personality Diagnostic Engine" inside the planner companion app "2027 Life OS: Off*Script (Chaos Year Edition)".
 
 THE PHILOSOPHY & CORE SLOGAN:
 The foundational operational slogan of this planner is "Boredom=Death". Monotony, numbness, mechanical compliance, and playing dead in a pre-scripted existence is the ultimate hazard.
@@ -579,8 +1628,8 @@ ${textToAnalyze}
       };
 
       // Store snapshot in history
-      db.personalitySnapshots.unshift(snapshot);
-      if (db.personalitySnapshots.length > 50) db.personalitySnapshots.pop();
+      ar.ud.personalitySnapshots.unshift(snapshot);
+      if (ar.ud.personalitySnapshots.length > 50) ar.ud.personalitySnapshots.pop();
       saveData(db);
 
       return res.json(snapshot);
@@ -633,1170 +1682,471 @@ ${textToAnalyze}
     ]
   };
 
-  db.personalitySnapshots.unshift(fallbackSnapshot);
-  if (db.personalitySnapshots.length > 50) db.personalitySnapshots.pop();
+  ar.ud.personalitySnapshots.unshift(fallbackSnapshot);
+  if (ar.ud.personalitySnapshots.length > 50) ar.ud.personalitySnapshots.pop();
   saveData(db);
 
   res.json(fallbackSnapshot);
 });
 
-// ================= GEMINI AI FEATURE ROUTES =================
+// ================= AI STUDIO HUB (media generation — Gemini ONLY here) =================
+// Strict scope: GEMINI_API_KEY is used exclusively by these /api/studio/*
+// endpoints. Every other AI route in this server stays on Mei by bot ID.
+// The client NEVER calls Google directly and never sees the key.
+// REST shape mirrors the third-party AI Studio Hub (music / image create+edit /
+// video + status/download / transcription), persisted to the JSON data file
+// per user instead of Firestore.
+//
+// GOOGLE GEMINI CONSENT: every Gemini-backed endpoint below (and the
+// /api/mei/media-intent handoff, and the /api/diagnose Gemini fallback)
+// requires the client to send `X-AI-Consent: granted`. That header is only
+// sent after the user explicitly accepts the in-app Google Gemini consent
+// screen. Without it the call is refused and the client falls back to its
+// non-Gemini behavior. Declining never blocks the app.
 
-// 1. AI Custom Morning Mantra & Slogan Generator
-app.post("/api/ai/mantra", async (req, res) => {
-  const {
-    word_of_the_year = db.user.word_of_the_year || "FERAL",
-    chaos_name = db.user.chaos_name || "The Unruly Alchemist",
-    mood = "Defiant & Alert",
-    edge_level = "Piercing",
-    holiday_title = "Fresh Margin Day",
-    holiday_adventure = ""
-  } = req.body;
+const AI_CONSENT_HEADER = 'x-ai-consent';
 
-  const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const prompt = `
-You are the morning ignition voice for "Life OS: Off*Script 2027 (Chaos Year Edition)".
-The operational law of this planner is: "Boredom=Death".
-Philosophy: Anti-hustle, zero toxic positivity, psychological sovereignty, permission to leave the edges ragged, allergic to corporate pep talks.
-
-USER CONTEXT:
-- Chosen Alias: "${chaos_name}"
-- Word of the Year: "${word_of_the_year}"
-- Current Vibe / State: "${mood}"
-- Today's Unofficial Chaos Holiday: "${holiday_title}" (${holiday_adventure})
-- Desired Edge Level: "${edge_level}" (Options: "Sharp" = lucid & clean boundary; "Piercing" = cuts straight through excuses; "Feral" = unapologetic refusal to comply with domestic boredom).
-
-Generate ONE powerful, uncurated morning affirmation/mantra that hits like cold mountain water.
-
-Return JSON in this exact structure:
-{
-  "text": string (1-2 punchy sentences, quotable, fierce, no hollow cheerleading),
-  "edgeLevel": "Sharp" | "Piercing" | "Feral",
-  "attitude": string (e.g. "Sovereign Resistance", "Unbothered Clarity", "Feral Grace"),
-  "contextTag": string (e.g. "MORNING IGNITION", "SANCTUARY DEFENSE", "PERFORMANCE BURN"),
-  "whyItHits": string (1 sentence explaining why this pierces today's autopilot)
+function aiConsentGranted(req: express.Request): boolean {
+  return String(req.headers[AI_CONSENT_HEADER] || '').toLowerCase() === 'granted';
 }
-`;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.85
-        }
-      });
 
-      const parsed = JSON.parse(response.text || "{}");
-      return res.json({
-        text: parsed.text || `Today I will not apologize for moving at the speed of my own nervous system.`,
-        edgeLevel: parsed.edgeLevel || edge_level,
-        attitude: parsed.attitude || "Sovereign Stance",
-        contextTag: parsed.contextTag || "MORNING IGNITION",
-        whyItHits: parsed.whyItHits || "Removes the obligation to perform competence for strangers."
-      });
-    } catch (e: any) {
-      console.warn("AI mantra generation fallback:", e.message);
+function requireAiConsent(res: express.Response) {
+  return res.status(403).json({
+    error: "Google Gemini needs your OK first — enable it in the app's AI Studio to use generation features.",
+    code: 'AI_CONSENT_REQUIRED'
+  });
+}
+
+const GEMINI_REST = "https://generativelanguage.googleapis.com/v1beta";
+const STUDIO_JSON_LIMIT = "50mb"; // base64 audio/images exceed express's default 100kb
+const studioJson = express.json({ limit: STUDIO_JSON_LIMIT });
+const STUDIO_MEDIA_CAP = 30; // mirrors the source's Firestore fetch limit
+const STUDIO_ITEM_MAX_BYTES = 8 * 1024 * 1024; // don't bloat the data file with giant blobs
+
+function getStudioKey(): string | null {
+  const key = process.env.GEMINI_API_KEY;
+  return key && key.trim() ? key.trim() : null;
+}
+
+function studioNotConfigured(res: express.Response) {
+  return res.status(503).json({
+    error: "AI Studio isn't configured on this server yet — no GEMINI_API_KEY. The media studio stays tucked away until it's set up.",
+    code: "STUDIO_NOT_CONFIGURED"
+  });
+}
+
+/** Extract the first inlineData part from a generateContent REST response. */
+function firstInlineData(resp: any): { mimeType: string; data: string } | null {
+  const candidates = resp?.candidates || [];
+  for (const c of candidates) {
+    for (const part of c?.content?.parts || []) {
+      if (part?.inlineData?.data) {
+        return { mimeType: part.inlineData.mimeType || "", data: part.inlineData.data };
+      }
     }
   }
+  return null;
+}
 
-  // Fallback
-  const fallbacks: Record<string, { text: string; attitude: string; contextTag: string; whyItHits: string }> = {
-    Sharp: {
-      text: `An intention is not a debt owed to your calendar. It is a compass point. You are allowed to adjust the coordinates.`,
-      attitude: "Clean Vector",
-      contextTag: "BOUNDARY DEFENSE",
-      whyItHits: "De-escalates scheduling anxiety into simple direction."
-    },
-    Piercing: {
-      text: `Stop auditioning for people who are barely awake inside their own lives. Do the real work or take a real rest.`,
-      attitude: "Uncurated Truth",
-      contextTag: "PERFORMANCE BURN",
-      whyItHits: "Calls out performative busywork on the spot."
-    },
-    Feral: {
-      text: `I will not be domesticated by email notifications. If it lacks soul, it waits; if it kills boredom, I chase it.`,
-      attitude: "Feral Grace",
-      contextTag: "RADICAL SOVEREIGNTY",
-      whyItHits: "Restores the animal instinct against mechanical compliance."
-    }
+function stripDataUrlPrefix(dataUrl: string): string {
+  return String(dataUrl || "").replace(/^data:[^;]+;base64,/, "");
+}
+
+async function geminiGenerateContent(key: string, model: string, body: any): Promise<any> {
+  const r = await fetch(`${GEMINI_REST}/models/${model}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify(body)
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = json?.error?.message || `Google API error ${r.status}`;
+    const err: any = new Error(msg);
+    err.status = r.status;
+    throw err;
+  }
+  return json;
+}
+
+function studioMediaOf(ud: UserData): StudioMediaItem[] {
+  if (!Array.isArray((ud as any).studioMedia)) (ud as any).studioMedia = [];
+  return (ud as any).studioMedia as StudioMediaItem[];
+}
+
+function saveStudioItem(userId: string, ud: UserData, item: Omit<StudioMediaItem, "id" | "createdAt">): StudioMediaItem | null {
+  // Keep the data file lean: skip persisting giant blobs, but still return the record.
+  if ((item.resultUrl || "").length > STUDIO_ITEM_MAX_BYTES) return null;
+  const list = studioMediaOf(ud);
+  const record: StudioMediaItem = {
+    ...item,
+    id: `studio_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`,
+    createdAt: new Date().toISOString()
   };
-
-  const choice = fallbacks[edge_level] || fallbacks.Piercing;
-  res.json({
-    text: choice.text,
-    edgeLevel: edge_level,
-    attitude: choice.attitude,
-    contextTag: choice.contextTag,
-    whyItHits: choice.whyItHits
-  });
-});
-
-// 2. AI Anti-Optimization Reality Check on Top 3 Priorities
-app.post("/api/ai/refine-priorities", async (req, res) => {
-  const { priorities = [], morning_intention = "", today_i_am = "" } = req.body;
-
-  const rawList = Array.isArray(priorities) ? priorities.filter(Boolean) : [];
-  const ai = getGeminiClient();
-
-  if (ai && rawList.length > 0) {
-    try {
-      const prompt = `
-You are the "Anti-Optimization Priority Reality Check" inside the 2027 Life OS planner.
-The user submitted their Top 3 Daily Priorities.
-Most people default to "productivity theater"—stuffing 4 different projects into priority #1, listing vague corporate obligations, or treating human life like a factory conveyor belt.
-
-USER INTENTION: "${morning_intention || "Steadiness over optimization"}"
-USER STANCE TODAY: "${today_i_am || "Unhurried sovereign"}"
-CURRENT PRIORITIES SUBMITTED:
-1. ${rawList[0] || "(empty)"}
-2. ${rawList[1] || "(empty)"}
-3. ${rawList[2] || "(empty)"}
-
-YOUR TASK:
-1. Detect performative clutter, scope creep, and self-deception in these priorities.
-2. Refine them into EXACTLY 3 crisp, sanity-protecting, doable focus items that respect human limits and honor the "Boredom=Death" anti-hustle ethos.
-3. Provide a blunt, witty reality check note.
-
-Return JSON:
-{
-  "refined_priorities": [string, string, string],
-  "reality_check_note": string (2-3 sentences calling out what was trimmed and why),
-  "de_optimization_callout": string (1 punchy line warning against disguised time-theft)
+  list.unshift(record);
+  while (list.length > STUDIO_MEDIA_CAP) list.pop();
+  saveData(db);
+  return record;
 }
-`;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.7
-        }
-      });
 
-      const parsed = JSON.parse(response.text || "{}");
-      if (Array.isArray(parsed.refined_priorities) && parsed.refined_priorities.length === 3) {
-        return res.json(parsed);
-      }
-    } catch (e: any) {
-      console.warn("Priority refinement AI fallback:", e.message);
-    }
-  }
-
-  // Fallback
-  res.json({
-    refined_priorities: [
-      rawList[0] || "Finish the single unskippable deliverable before noon",
-      rawList[1] || "60 minutes of unmonitored creative exploration",
-      rawList[2] || "Step outside with zero headphones or screens"
-    ],
-    reality_check_note: "Stripped out secondary tasks masquerading as urgent. If you do these three, the day was real.",
-    de_optimization_callout: "A priority list with four things is a wish list; with three, it's an execution."
-  });
+app.get("/api/studio/status", requireAuth, (_req, res) => {
+  res.json({ configured: Boolean(getStudioKey()) });
 });
 
-// 3. AI Audio Rant / Voice Memo Transcriber (via gemini-3.5-transcribe)
-app.post("/api/ai/transcribe-audio", async (req, res) => {
-  const { audioBase64, mimeType = "audio/webm" } = req.body;
+// ================= STUDIO JOB RUNNERS (internal) =================
+// Shared by the /api/studio/* route handlers below and the Mei media-intent
+// endpoint. Gemini stays media-only and server-side; the client never sees
+// the key. Behavior matches the original inline implementations exactly.
 
-  if (!audioBase64) {
-    return res.status(400).json({ error: "Missing audioBase64 in request body." });
-  }
-
-  const ai = getGeminiClient();
-  if (!ai) {
-    return res.status(503).json({
-      error: "Gemini API key is not configured on the server. Please check Settings > Secrets."
-    });
-  }
-
-  try {
-    const audioPart = {
-      inlineData: {
-        mimeType: mimeType,
-        data: audioBase64
-      }
-    };
-
-    const textPart = {
-      text: "Transcribe this audio file accurately word-for-word. The speaker is recording their raw, uncensored evening flight debrief / rant for their journal. Do not summarize or censor. Return ONLY the verbatim transcribed text without commentary."
-    };
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-transcribe",
-      contents: { parts: [audioPart, textPart] }
-    });
-
-    const transcript = response.text || "";
-    return res.json({ transcript: transcript.trim() });
-  } catch (err: any) {
-    console.error("Audio transcription error via gemini-3.5-transcribe:", err);
-    return res.status(500).json({
-      error: err.message || "Failed to transcribe audio. Ensure audio format is valid."
-    });
-  }
-});
-
-// 4. Interactive "Ask Mei" Self-Relationship Dialogue
-app.post("/api/ai/ask-mei", async (req, res) => {
-  const { message, conversation_history = [], snapshot, user_profile, daily_entry } = req.body;
-
-  if (!message) {
-    return res.status(400).json({ error: "Message prompt required." });
-  }
-
-  const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const systemInstruction = `
-You are MEI, the core intelligence of the Relationship-with-Self Diagnostic Engine inside the planner "Life OS: Off*Script 2027 (Chaos Year Edition)".
-CORE SLOGAN: "Boredom=Death".
-YOUR PERSONA:
-- Unapologetic, razor-sharp, psychologically astute, witty, grounded, and sassy.
-- STRICTLY ZERO TOXIC POSITIVITY. Never say "You've got this!", "Give yourself grace", or patronizing slogans.
-- You act as the user's honest internal mirror. When they whine about being tired, you check what boundaries they failed to set. When they claim they "must" do something, you ask who is holding the gun to their head.
-- You speak like a brilliant, fiercely loyal friend who has read all their uncensored journals and refuses to let them play small or fake.
-- Keep answers concise, punchy (2-4 short paragraphs max), and grounded in concrete actions.
-`;
-
-      const contextSummary = `
-USER CONTEXT:
-Alias: ${user_profile?.chaos_name || db.user.chaos_name}
-Word of the Year: ${user_profile?.word_of_the_year || db.user.word_of_the_year}
-What they are done pretending about: ${user_profile?.what_done_pretending || db.user.what_done_pretending}
-Latest Burnout Level: ${snapshot?.burnout_risk || "Moderate"}
-Detected Mood: ${snapshot?.detected_mood || "Analytical & Searching"}
-Latest Contradiction: ${snapshot?.contradiction_callout || "Preaching rest while planning more chores"}
-Today's Rant Notes: ${daily_entry?.evening_notes || "None logged"}
-Today's Chaos Score: ${daily_entry?.chaos_score || 5}/10
-`;
-
-      let formattedConversation = "";
-      if (Array.isArray(conversation_history)) {
-        formattedConversation = conversation_history
-          .map((m: any) => `${m.role === "user" ? "USER" : "MEI"}: ${m.content}`)
-          .join("\n");
-      }
-
-      const prompt = `
-${contextSummary}
-
-PAST CONVERSATION:
-${formattedConversation}
-
-USER'S LATEST QUESTION / CONFESSION:
-"${message}"
-
-Respond as Mei:
-`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          systemInstruction,
-          temperature: 0.85
-        }
-      });
-
-      return res.json({ reply: response.text || "I see what you're doing, and no, you cannot optimize your way out of feeling human." });
-    } catch (e: any) {
-      console.warn("Ask Mei AI fallback:", e.message);
-    }
-  }
-
-  // Fallback response
-  res.json({
-    reply: `Let's be intensely real for a second. You asked: "${message}". Notice how you're trying to analyze the problem instead of feeling the friction? The answer isn't another framework or a cleaner spreadsheet. You already know what boundary you're avoiding setting. Put the laptop down and make the decision you've been putting off.`
-  });
-});
-
-// 4b. AI Companion Persona: Proactive Evening Follow-Up & 12-Hour Inactivity Check-in
-app.post("/api/ai/companion-checkin", async (req, res) => {
-  const {
-    evening_notes = "",
-    hours_since_last_entry = 0,
-    last_entry_date = "",
-    user_profile = db.user,
-    force_type
-  } = req.body;
-
-  // Determine trigger type: either follow-up on evening field notes or 12+ hour inactivity check-in
-  let trigger_type: 'field_notes_followup' | 'inactivity_checkin' = 'field_notes_followup';
-  if (force_type === 'inactivity_checkin' || force_type === 'field_notes_followup') {
-    trigger_type = force_type;
-  } else if (hours_since_last_entry >= 12) {
-    trigger_type = 'inactivity_checkin';
-  } else if (evening_notes && evening_notes.trim().length > 10) {
-    trigger_type = 'field_notes_followup';
-  } else if (hours_since_last_entry >= 8) {
-    trigger_type = 'inactivity_checkin';
-  }
-
-  const ai = getGeminiClient();
-  const alias = user_profile?.chaos_name || db.user.chaos_name || "The Operator";
-  const wordOfYear = user_profile?.word_of_the_year || db.user.word_of_the_year || "FERAL";
-
-  if (ai) {
-    try {
-      if (trigger_type === 'field_notes_followup') {
-        const prompt = `
-You are MEI, the Companion Persona inside "Life OS: Off*Script 2027 (Chaos Year Edition)".
-CORE SLOGAN: "Boredom=Death".
-YOUR PERSONA:
-- Razor-sharp, deeply loyal, sassy, witty, psychologically perceptive, zero toxic positivity.
-- You refuse to let the user rationalize burnout, perform politeness, or gaslight their own intuition.
-- You talk like a fiercely loving comrade holding up a mirror to their real uncensored thoughts.
-
-USER: "${alias}", Word of the Year: "${wordOfYear}"
-USER'S EVENING FIELD NOTES / RANT BOX:
-"${evening_notes || "Had a chaotic day and felt like I was running around putting out fires that weren't even mine."}"
-
-YOUR TASK:
-1. Provide a sharp, witty quip summarizing what you notice in their notes (1-2 sentences).
-2. Ask ONE laser-focused, penetrating follow-up question that cuts through their performance or addresses the root contradiction.
-3. Suggest 3 authentic, uncurated quick-reply choices they can click to respond immediately.
-
-Return JSON in this format:
-{
-  "trigger_type": "field_notes_followup",
-  "witty_quip": string,
-  "message": string,
-  "follow_up_question": string,
-  "suggested_replies": [string, string, string]
-}
-`;
-        const response = await ai.models.generateContent({
-          model: "gemini-3.8-flash",
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.85
-          }
-        });
-
-        const parsed = JSON.parse(response.text || "{}");
-        if (parsed.follow_up_question) {
-          return res.json({
-            trigger_type: 'field_notes_followup',
-            witty_quip: parsed.witty_quip || "I read between the lines of your evening notes.",
-            message: parsed.message || parsed.witty_quip || "You said you were fine, but your field notes say otherwise.",
-            follow_up_question: parsed.follow_up_question,
-            suggested_replies: Array.isArray(parsed.suggested_replies) && parsed.suggested_replies.length > 0
-              ? parsed.suggested_replies.slice(0, 3)
-              : [
-                  "I was performing competence again.",
-                  "I'm terrified of dropping the ball.",
-                  "Honestly, I'm just furious and need to sleep on it."
-                ]
-          });
-        }
-      } else {
-        // Inactivity Check-in (>12 hours)
-        const prompt = `
-You are MEI, the Companion Persona inside "Life OS: Off*Script 2027 (Chaos Year Edition)".
-CORE SLOGAN: "Boredom=Death".
-YOUR PERSONA:
-- Witty, sassy, irreverent, observant, fiercely loyal, anti-hustle.
-- DO NOT guilt-trip the user for missing a daily check-in (no toxic streak-shaming!).
-- Instead, initiate a brief, playful, witty pulse check because it has been over 12 hours (${Math.round(hours_since_last_entry || 14)} hours) since their last entry.
-- Wonder if they've been abducted by corporate autopilot, paralyzed by perfectionism, or actually living off-grid.
-
-USER: "${alias}", Word of the Year: "${wordOfYear}"
-
-YOUR TASK:
-1. Craft a brief, witty check-in quip addressing the 12+ hour silence.
-2. Ask ONE playful follow-up question to re-engage their nervous system.
-3. Provide 3 punchy, honest quick-replies.
-
-Return JSON in this format:
-{
-  "trigger_type": "inactivity_checkin",
-  "witty_quip": string,
-  "message": string,
-  "follow_up_question": string,
-  "suggested_replies": [string, string, string],
-  "hours_inactive": number
-}
-`;
-        const response = await ai.models.generateContent({
-          model: "gemini-3.8-flash",
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.85
-          }
-        });
-
-        const parsed = JSON.parse(response.text || "{}");
-        if (parsed.follow_up_question || parsed.message) {
-          return res.json({
-            trigger_type: 'inactivity_checkin',
-            witty_quip: parsed.witty_quip || "Over 12 hours of radio silence detected.",
-            message: parsed.message || `It's been ${Math.round(hours_since_last_entry || 14)} hours since your last flight transmission.`,
-            follow_up_question: parsed.follow_up_question || "Did you get domesticated by mindless autopilot, or are you actually off-script living in 3D?",
-            suggested_replies: Array.isArray(parsed.suggested_replies) && parsed.suggested_replies.length > 0
-              ? parsed.suggested_replies.slice(0, 3)
-              : [
-                  "Got swallowed by errands and screen fatigue.",
-                  "Actually lived a full off-grid day without reporting.",
-                  "Staring at a blank wall recalibrating."
-                ],
-            hours_inactive: Math.round(hours_since_last_entry || 14)
-          });
-        }
-      }
-    } catch (e: any) {
-      console.warn("Companion check-in AI error, using fallback:", e.message);
-    }
-  }
-
-  // Graceful Fallback
-  if (trigger_type === 'field_notes_followup') {
-    return res.json({
-      trigger_type: 'field_notes_followup',
-      witty_quip: "Mei's Lens on your Evening Field Notes",
-      message: "You wrote that you're exhausted, but your notes reveal you spent half your afternoon defending boundaries you never actually spoke out loud.",
-      follow_up_question: "Who is the imaginary judge you are still trying to impress with this performance?",
-      suggested_replies: [
-        "My past self who thought exhaustion was proof of virtue.",
-        "Someone whose email I still haven't answered.",
-        "Nobody. I just forgot that rest is free."
-      ]
-    });
-  } else {
-    return res.json({
-      trigger_type: 'inactivity_checkin',
-      witty_quip: "12-Hour Radio Silence Ping",
-      message: `Over 12 hours since your last flight log transmission.`,
-      follow_up_question: "Did you surrender to the mundane matrix, or did you unplug and forget the log exists because life got interesting?",
-      suggested_replies: [
-        "Trapped in domestic busywork and need a reboot.",
-        "Off-grid and genuinely thriving.",
-        "Stuck in a doomscroll loop, pull me out."
-      ],
-      hours_inactive: Math.round(hours_since_last_entry || 14)
-    });
-  }
-});
-
-// 5. AI Goal Stress-Tester ("Bullshit Detector")
-app.post("/api/ai/stress-test-goal", async (req, res) => {
-  const { title, why_statement, success_metric, first_step, quarter = "Q1" } = req.body;
-
-  const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const prompt = `
-You are the "Big 6 Goal Bullshit Detector & Stress-Tester" inside 2027 Life OS.
-The app allows ONLY 6 active goals per year because focus is sacred and "Boredom=Death".
-
-CANDIDATE GOAL TO TEST:
-Title: "${title}"
-Quarter: "${quarter}"
-Why Statement: "${why_statement}"
-Success Metric: "${success_metric}"
-First Step: "${first_step}"
-
-TESTING CRITERIA:
-1. Is this goal authentic self-sovereignty or performative societal pressure?
-2. Is the metric genuinely measurable without turning into a punitive surveillance system?
-3. Is the first step concrete (can be done in 15 minutes) or is it a giant hidden project?
-
-Return JSON:
-{
-  "verdict": "Pass" | "Performative Trap" | "Needs Sharpening",
-  "analysis": string (2-3 sentences explaining the verdict with loving sharpness),
-  "traps_detected": string[] (e.g. ["Vague metric", "People-pleasing motive", "Overambitious step 1"]),
-  "suggested_refinement": {
-    "title": string,
-    "why_statement": string,
-    "success_metric": string,
-    "first_step": string
-  }
-}
-`;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.7
-        }
-      });
-
-      const parsed = JSON.parse(response.text || "{}");
-      return res.json(parsed);
-    } catch (e: any) {
-      console.warn("Stress test goal fallback:", e.message);
-    }
-  }
-
-  // Fallback
-  res.json({
-    verdict: "Needs Sharpening",
-    analysis: `This goal has strong bone structure, but your success metric smells slightly of performative metrics rather than lived sovereignty.`,
-    traps_detected: ["Metric might encourage toxic streak-counting", "First step needs to be smaller"],
-    suggested_refinement: {
-      title: title || "Uncompromising Deep Work Sanctuary",
-      why_statement: why_statement || "Because half-hearted multitasking is slowly poisoning my creative stamina.",
-      success_metric: success_metric || "10 uninterrupted 90-minute blocks logged without a browser tab open.",
-      first_step: first_step || "Block 9:00-10:30 AM tomorrow in permanent ink and turn off phone notifications."
-    }
-  });
-});
-
-// 6. AI Anti-Goal Generator (Suggest boundaries to stop doing)
-app.post("/api/ai/suggest-anti-goals", async (req, res) => {
-  const { user_profile = db.user, category } = req.body;
-
-  const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const prompt = `
-Generate 3 distinct, piercing "Anti-Goals" for the 2027 Life OS user.
-An Anti-Goal is NOT something you achieve; it is a BEHAVIOR, HABIT, OR PEOPLE-PLEASING COMPLIANCE YOU FORMALLY REFUSE TO DO.
-Operational Motto: "Boredom=Death".
-Target category filter (optional): "${category || "All"}"
-
-USER IDENTITY:
-Name: ${user_profile?.chaos_name || db.user.chaos_name}
-Word of the Year: ${user_profile?.word_of_the_year || db.user.word_of_the_year}
-What they are done pretending about: ${user_profile?.what_done_pretending || db.user.what_done_pretending}
-
-Generate 3 deeply insightful, non-generic Anti-Goals across categories like Boundary, Time Theft, Energy Drain, People Pleasing, or Perfectionism.
-
-Return JSON:
-{
-  "suggestions": [
-    {
-      "title": string (action being outlawed, starting with a gerund like "Apologizing before...", "Attending meetings..."),
-      "category": "Boundary" | "Time Theft" | "Energy Drain" | "People Pleasing" | "Perfectionism",
-      "why_stopped": string (blunt 1-sentence truth of why this behavior is toxic)
-    }
-  ]
-}
-`;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.8
-        }
-      });
-
-      const parsed = JSON.parse(response.text || "{}");
-      if (Array.isArray(parsed.suggestions)) {
-        return res.json(parsed);
-      }
-    } catch (e: any) {
-      console.warn("Anti-goal suggestion fallback:", e.message);
-    }
-  }
-
-  // Fallback
-  res.json({
-    suggestions: [
-      {
-        title: "Justifying why I am taking a day off to colleagues who didn't ask",
-        category: "People Pleasing",
-        why_stopped: "Over-explaining is an emotional apology for taking up space."
-      },
-      {
-        title: "Defaulting to high-speed multitasking when feeling anxiety",
-        category: "Energy Drain",
-        why_stopped: "Frenetic speed creates the illusion of control while burning the battery to zero."
-      },
-      {
-        title: "Polishing slide decks or documents that will be read for 45 seconds",
-        category: "Perfectionism",
-        why_stopped: "Perfuming drafts is fear of putting ideas into contact with reality."
-      }
-    ]
-  });
-});
-
-// 7. AI Weekly Flight Debrief Forensic Synthesizer
-app.post("/api/ai/synthesize-debrief", async (req, res) => {
-  const { week_number = 1, answers = {}, recent_entries = [] } = req.body;
-
-  const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const prompt = `
-You are the "Forensic Non-Productivity Analyst" for the 2027 Life OS Weekly Flight Debrief (Week ${week_number}).
-Analyze the user's weekly reflections below:
-Q1 (Where the script failed): "${answers.q1 || answers.q1_script_disapproval || ""}"
-Q2 (Honest moment): "${answers.q2 || answers.q2_honest_moment || ""}"
-Q3 (Useful surprise): "${answers.q3 || answers.q3_useful_surprise || ""}"
-Q4 (Refusal to perform): "${answers.q4 || answers.q4_refusal_to_perform || ""}"
-Q5 (One word): "${answers.q5 || answers.q5_one_word || ""}"
-Q6 (More oxygen needed): "${answers.q6 || answers.q6_more_oxygen || ""}"
-Q7 (Less attention deserved): "${answers.q7 || answers.q7_less_attention || ""}"
-Q8 (Next bold move): "${answers.q8 || answers.q8_next_move || ""}"
-
-YOUR TASK:
-Synthesize this into an unvarnished forensic summary of their week.
-Focus on:
-1. The Core Contradiction they wrestled with
-2. Their Most Heroic Refusal to perform
-3. The Numbness / Boredom Alarm (where autopilot tried to steal their life)
-4. A prescribed strategic Micro-Dare for next week
-
-Return JSON:
-{
-  "core_contradiction": string,
-  "heroic_refusal": string,
-  "numbness_alert": string,
-  "strategic_micro_dare": string,
-  "forensic_recap": string (2-3 paragraphs of witty, grounded analysis)
-}
-`;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.75
-        }
-      });
-
-      const parsed = JSON.parse(response.text || "{}");
-      return res.json(parsed);
-    } catch (e: any) {
-      console.warn("Weekly debrief synthesis fallback:", e.message);
-    }
-  }
-
-  // Fallback
-  res.json({
-    core_contradiction: "You craved spacious freedom but caught yourself inventing emergency deadlines on Thursday.",
-    heroic_refusal: "Saying 'no' to performative status meetings without offering a polite fake excuse.",
-    numbness_alert: "Late-afternoon notification reflex when creative work got ambiguous.",
-    strategic_micro_dare: "Block the first 90 minutes of next Tuesday completely offline—no email, no slack, just analog craft.",
-    forensic_recap: `Week ${week_number} wasn't neat, and that is its greatest victory. You had multiple opportunities to fold back into corporate autopilot, and you visibly chose friction over fake harmony.\n\nThe real test for next week is protecting your morning oxygen before the world hands you its emergency punchlist. You don't need a tighter grip; you need fewer auditions.`
-  });
-});
-
-// 8. AI No-Shame Financial Audit
-app.post("/api/ai/analyze-finances", async (req, res) => {
-  const {
-    income_sources = [],
-    fixed_expenses = [],
-    one_surprise = "",
-    one_pattern = "",
-    financial_commitment = "",
-    no_shame_recap = ""
-  } = req.body;
-
-  const totalIncome = (income_sources || []).reduce((acc: number, c: any) => acc + (Number(c.amount) || 0), 0);
-  const totalFixed = (fixed_expenses || []).reduce((acc: number, c: any) => acc + (Number(c.amount) || 0), 0);
-  const margin = totalIncome - totalFixed;
-
-  const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const prompt = `
-You are the "No-Shame Financial Sovereignty Detective" in 2027 Life OS.
-PHILOSOPHY: Money is raw fuel for freedom and boundaries, never a moral scoreboard. Zero shame around spending, zero puritanical budgeting lectures.
-
-FINANCIAL DATA:
-- Total Inflow: $${totalIncome}
-- Total Fixed Survival Drains: $${totalFixed}
-- Remaining Discretionary Margin: $${margin}
-- User's Observed Surprise: "${one_surprise}"
-- User's Observed Pattern: "${one_pattern}"
-- Financial Commitment: "${financial_commitment}"
-- User's Existing Recap: "${no_shame_recap}"
-
-YOUR TASK:
-Provide a perceptive, liberating, non-judgmental audit of this money snapshot.
-Identify emotional spending triggers (e.g. buying gadgets to avoid hard conversations) without making them feel guilty, and draft an empowering permission slip.
-
-Return JSON:
-{
-  "no_shame_audit": string (2 paragraphs evaluating their financial sovereignty with humor and clarity),
-  "emotional_spending_pattern": string (1-2 sentences decoding the psychological function of their spending),
-  "sovereignty_rating": string (e.g. "Sovereign Fortress", "Emergent Boundary", "High-Friction Expansion"),
-  "permission_slip": string (1 formal, liberating sentence granting permission to spend or save without guilt)
-}
-`;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.75
-        }
-      });
-
-      const parsed = JSON.parse(response.text || "{}");
-      return res.json(parsed);
-    } catch (e: any) {
-      console.warn("Financial audit AI fallback:", e.message);
-    }
-  }
-
-  // Fallback
-  res.json({
-    no_shame_audit: `With $${totalIncome} flowing in and $${totalFixed} in fixed foundations, your net sovereignty margin stands at $${margin}. The numbers confirm that your shelter and core tools are covered; any friction you feel right now is about perceived scarcity, not immediate catastrophe.`,
-    emotional_spending_pattern: "Notice how spontaneous spending spikes on days when you didn't say what you actually meant during working hours.",
-    sovereignty_rating: margin > 1000 ? "Sovereign Fortress" : "Emergent Runway",
-    permission_slip: "You have official permission to spend on quiet sanctuaries and healthy fuel without presenting a moral defense to anyone."
-  });
-});
-
-// ================= 3. MUSIC GENERATION (Lyria 3) =================
-// Supports lyria-3-clip-preview (up to 30s clips) and lyria-3-pro-preview (full tracks)
-app.post("/api/ai/generate-music", async (req, res) => {
-  const { prompt, model = "lyria-3-clip-preview", imageBase64 } = req.body;
-  const ai = getGeminiClient();
-  if (!ai) {
-    return res.status(500).json({ error: "Gemini API key is not configured" });
-  }
-
+async function runStudioMusicJob(
+  key: string, userId: string, ud: UserData,
+  opts: { prompt?: string; model?: string; imageBase64?: string }
+): Promise<{ audioUrl: string | null; modelUsed: string; prompt?: string; text?: string }> {
+  const { prompt, model = "lyria-3-clip-preview", imageBase64 } = opts;
   const selectedModel = model === "lyria-3-pro-preview" ? "lyria-3-pro-preview" : "lyria-3-clip-preview";
+  const parts: any[] = [
+    { text: prompt || "A resonant ambient lo-fi soundscape for unhurried morning journaling, subtle analog synth textures and warm vinyl warmth." }
+  ];
+  if (imageBase64) {
+    parts.push({ inlineData: { mimeType: "image/jpeg", data: stripDataUrlPrefix(imageBase64) } });
+  }
+  const resp = await geminiGenerateContent(key, selectedModel, { contents: { parts } });
+  const inline = firstInlineData(resp);
+  if (inline) {
+    const audioUrl = `data:${inline.mimeType || "audio/mp3"};base64,${inline.data}`;
+    saveStudioItem(userId, ud, { type: "music", prompt: String(prompt || ""), resultUrl: audioUrl, mimeType: inline.mimeType, model: selectedModel });
+    return { audioUrl, modelUsed: selectedModel, prompt };
+  }
+  return { text: (resp as any).text || "Music composition generated.", modelUsed: selectedModel, prompt, audioUrl: null };
+}
 
+async function runStudioImageJob(
+  key: string, userId: string, ud: UserData,
+  opts: { prompt?: string; aspectRatio?: string }
+): Promise<{ imageUrl: string; prompt?: string; model: string }> {
+  const { prompt, aspectRatio = "1:1" } = opts;
+  const resp = await geminiGenerateContent(key, "gemini-3.1-flash-image-preview", {
+    contents: { parts: [{ text: String(prompt || "") }] },
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+      imageConfig: { aspectRatio }
+    }
+  });
+  const inline = firstInlineData(resp);
+  if (!inline) {
+    const err: any = new Error("No image generated");
+    err.status = 400;
+    throw err;
+  }
+  const imageUrl = `data:${inline.mimeType || "image/png"};base64,${inline.data}`;
+  saveStudioItem(userId, ud, { type: "image", prompt: String(prompt || ""), resultUrl: imageUrl, mimeType: inline.mimeType, aspectRatio: String(aspectRatio), model: "gemini-3.1-flash-image-preview" });
+  return { imageUrl, prompt, model: "gemini-3.1-flash-image-preview" };
+}
+
+async function runStudioVideoJob(
+  key: string, userId: string, ud: UserData,
+  opts: { prompt?: string; imageBase64?: string; mimeType?: string; aspectRatio?: string }
+): Promise<{ operationName: string; prompt?: string; aspectRatio: string }> {
+  const { prompt, imageBase64, mimeType = "image/png", aspectRatio = "16:9" } = opts;
+  const validAspectRatio = aspectRatio === "9:16" ? "9:16" : "16:9";
+  const instance: any = {
+    prompt: prompt || "A cinematic atmospheric motion sequence of morning sunlight breaking through city fog"
+  };
+  if (imageBase64) {
+    instance.image = { bytesBase64Encoded: stripDataUrlPrefix(imageBase64), mimeType };
+  }
+  const r = await fetch(`${GEMINI_REST}/models/veo-3.1-fast-generate-preview:predictLongRunning`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify({
+      instances: [instance],
+      parameters: { sampleCount: 1, aspectRatio: validAspectRatio, resolution: "720p" }
+    })
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(json?.error?.message || `Video request failed (${r.status})`);
+  if (!json?.name) throw new Error("Video request returned no operation name.");
+  saveStudioItem(userId, ud, {
+    type: "video",
+    prompt: String(prompt || ""),
+    resultUrl: "",
+    aspectRatio: validAspectRatio,
+    model: "veo-3.1-fast-generate-preview",
+    operationName: json.name
+  });
+  return { operationName: json.name, prompt, aspectRatio: validAspectRatio };
+}
+
+/** Poll a Veo long-running operation until done or the timeout elapses. */
+async function pollStudioVideoDone(key: string, operationName: string, timeoutMs = 90000, intervalMs = 8000): Promise<{ done: boolean; error?: any }> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const r = await fetch(`${GEMINI_REST}/${operationName}`, { headers: { "x-goog-api-key": key } });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json?.error?.message || `Status check failed (${r.status})`);
+    if (json.done) return { done: true, error: json.error || null };
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return { done: false };
+}
+
+// ---- Music (Lyria 3) ----
+app.post("/api/studio/music", requireAuth, studioJson, async (req, res) => {
+  if (!aiConsentGranted(req)) return requireAiConsent(res);
+  const key = getStudioKey();
+  if (!key) return studioNotConfigured(res);
+  const ar = req as AuthedRequest;
+  const { prompt, model, imageBase64 } = req.body || {};
   try {
-    const parts: any[] = [
-      { text: prompt || "A resonant ambient lo-fi soundscape for unhurried morning journaling, subtle analog synth textures and warm vinyl warmth." }
-    ];
-
-    if (imageBase64) {
-      const cleanData = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-      parts.push({
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: cleanData
-        }
-      });
-    }
-
-    const response = await ai.models.generateContent({
-      model: selectedModel,
-      contents: { parts }
-    });
-
-    let audioData: string | null = null;
-    let mimeType = "audio/mp3";
-
-    for (const candidate of response.candidates || []) {
-      for (const part of candidate.content?.parts || []) {
-        if (part.inlineData?.data) {
-          audioData = part.inlineData.data;
-          mimeType = part.inlineData.mimeType || "audio/mp3";
-          break;
-        }
-      }
-      if (audioData) break;
-    }
-
-    if (audioData) {
-      return res.json({
-        audioUrl: `data:${mimeType};base64,${audioData}`,
-        modelUsed: selectedModel,
-        prompt
-      });
-    }
-
-    return res.json({
-      text: response.text || "Music composition generated.",
-      modelUsed: selectedModel,
-      prompt,
-      audioUrl: null
-    });
+    return res.json(await runStudioMusicJob(key, ar.userId, ar.ud, { prompt, model, imageBase64 }));
   } catch (err: any) {
-    console.error("Music generation API error:", err);
+    console.error("Studio music error:", err.message);
     res.status(500).json({ error: err.message || "Failed to generate music" });
   }
 });
 
-// ================= 4. IMAGE CREATION & EDITING (gemini-3.1-flash-image-preview) =================
-app.post("/api/ai/generate-image", async (req, res) => {
-  const { prompt, aspectRatio = "1:1" } = req.body;
-  const ai = getGeminiClient();
-  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
-
+// ---- Image create ----
+app.post("/api/studio/image", requireAuth, studioJson, async (req, res) => {
+  if (!aiConsentGranted(req)) return requireAiConsent(res);
+  const key = getStudioKey();
+  if (!key) return studioNotConfigured(res);
+  const ar = req as AuthedRequest;
+  const { prompt, aspectRatio } = req.body || {};
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
-      contents: {
-        parts: [{ text: prompt }]
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: aspectRatio as any
-        }
-      }
-    });
-
-    let imageUrl: string | null = null;
-    for (const candidate of response.candidates || []) {
-      for (const part of candidate.content?.parts || []) {
-        if (part.inlineData?.data) {
-          const mime = part.inlineData.mimeType || "image/png";
-          imageUrl = `data:${mime};base64,${part.inlineData.data}`;
-          break;
-        }
-      }
-      if (imageUrl) break;
-    }
-
-    if (imageUrl) {
-      return res.json({ imageUrl, prompt, model: "gemini-3.1-flash-image-preview" });
-    }
-
-    return res.status(400).json({ error: "No image generated", text: response.text });
+    return res.json(await runStudioImageJob(key, ar.userId, ar.ud, { prompt, aspectRatio }));
   } catch (err: any) {
-    console.error("Image generation API error:", err);
-    res.status(500).json({ error: err.message || "Failed to create image" });
+    console.error("Studio image error:", err.message);
+    res.status(err.status || 500).json({ error: err.message || "Failed to create image" });
   }
 });
 
-app.post("/api/ai/edit-image", async (req, res) => {
-  const { imageBase64, prompt, mimeType = "image/png" } = req.body;
-  const ai = getGeminiClient();
-  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
-
+// ---- Image edit ----
+app.post("/api/studio/image/edit", requireAuth, studioJson, async (req, res) => {
+  if (!aiConsentGranted(req)) return requireAiConsent(res);
+  const key = getStudioKey();
+  if (!key) return studioNotConfigured(res);
+  const ar = req as AuthedRequest;
+  const { imageBase64, prompt, mimeType = "image/png" } = req.body || {};
+  if (!imageBase64) return res.status(400).json({ error: "imageBase64 is required." });
   try {
-    const cleanData = imageBase64.replace(/^data:[^;]+;base64,/, "");
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
+    const resp = await geminiGenerateContent(key, "gemini-3.1-flash-image-preview", {
       contents: {
         parts: [
-          {
-            inlineData: {
-              data: cleanData,
-              mimeType
-            }
-          },
-          { text: prompt }
+          { inlineData: { data: stripDataUrlPrefix(imageBase64), mimeType } },
+          { text: String(prompt || "") }
         ]
-      }
+      },
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"] }
     });
-
-    let imageUrl: string | null = null;
-    for (const candidate of response.candidates || []) {
-      for (const part of candidate.content?.parts || []) {
-        if (part.inlineData?.data) {
-          const mime = part.inlineData.mimeType || "image/png";
-          imageUrl = `data:${mime};base64,${part.inlineData.data}`;
-          break;
-        }
-      }
-      if (imageUrl) break;
-    }
-
-    if (imageUrl) {
-      return res.json({ imageUrl, prompt, model: "gemini-3.1-flash-image-preview" });
-    }
-
-    return res.status(400).json({ error: "No edited image generated", text: response.text });
+    const inline = firstInlineData(resp);
+    if (!inline) return res.status(400).json({ error: "No edited image generated", text: (resp as any).text });
+    const imageUrl = `data:${inline.mimeType || "image/png"};base64,${inline.data}`;
+    saveStudioItem(ar.userId, ar.ud, { type: "image", prompt: String(prompt || ""), resultUrl: imageUrl, mimeType: inline.mimeType, model: "gemini-3.1-flash-image-preview" });
+    return res.json({ imageUrl, prompt, model: "gemini-3.1-flash-image-preview" });
   } catch (err: any) {
-    console.error("Image edit API error:", err);
+    console.error("Studio image-edit error:", err.message);
     res.status(500).json({ error: err.message || "Failed to edit image" });
   }
 });
 
-// ================= 5. VEO 3 VIDEO GENERATION (veo-3.1-fast-generate-preview) =================
-app.post("/api/ai/generate-video", async (req, res) => {
-  const { prompt, imageBase64, mimeType = "image/png", aspectRatio = "16:9" } = req.body;
-  const ai = getGeminiClient();
-  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
-
-  const validAspectRatio = aspectRatio === "9:16" ? "9:16" : "16:9";
-
+// ---- Video generate (Veo 3.1 fast, long-running operation) ----
+app.post("/api/studio/video", requireAuth, studioJson, async (req, res) => {
+  if (!aiConsentGranted(req)) return requireAiConsent(res);
+  const key = getStudioKey();
+  if (!key) return studioNotConfigured(res);
+  const ar = req as AuthedRequest;
+  const { prompt, imageBase64, mimeType, aspectRatio } = req.body || {};
   try {
-    const payload: any = {
-      model: "veo-3.1-fast-generate-preview",
-      prompt: prompt || "A cinematic atmospheric motion sequence of morning sunlight breaking through city fog",
-      config: {
-        numberOfVideos: 1,
-        resolution: "720p",
-        aspectRatio: validAspectRatio
-      }
-    };
-
-    if (imageBase64) {
-      const cleanData = imageBase64.replace(/^data:[^;]+;base64,/, "");
-      payload.image = {
-        imageBytes: cleanData,
-        mimeType
-      };
-    }
-
-    const operation = await ai.models.generateVideos(payload);
-    return res.json({
-      operationName: operation.name,
-      prompt,
-      aspectRatio: validAspectRatio
-    });
+    return res.json(await runStudioVideoJob(key, ar.userId, ar.ud, { prompt, imageBase64, mimeType, aspectRatio }));
   } catch (err: any) {
-    console.error("Veo video generation error:", err);
+    console.error("Studio video error:", err.message);
     res.status(500).json({ error: err.message || "Failed to generate video" });
   }
 });
 
-app.post("/api/ai/video-status", async (req, res) => {
-  const { operationName } = req.body;
-  const ai = getGeminiClient();
-  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
-
+// ---- Video status ----
+app.post("/api/studio/video/status", requireAuth, studioJson, async (req, res) => {
+  if (!aiConsentGranted(req)) return requireAiConsent(res);
+  const key = getStudioKey();
+  if (!key) return studioNotConfigured(res);
+  const { operationName } = req.body || {};
+  if (!operationName) return res.status(400).json({ error: "operationName is required." });
   try {
-    const op = new GenerateVideosOperation();
-    op.name = operationName;
-    const updated = await ai.operations.getVideosOperation({ operation: op });
-    return res.json({ done: Boolean(updated.done), error: updated.error });
+    const r = await fetch(`${GEMINI_REST}/${operationName}`, {
+      headers: { "x-goog-api-key": key }
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json?.error?.message || `Status check failed (${r.status})`);
+    return res.json({ done: Boolean(json.done), error: json.error || null });
   } catch (err: any) {
-    console.error("Video status polling error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("Studio video-status error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to check video status" });
   }
 });
 
-app.post("/api/ai/video-download", async (req, res) => {
-  const { operationName } = req.body;
-  const ai = getGeminiClient();
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!ai || !apiKey) return res.status(500).json({ error: "Gemini API key missing" });
-
+// ---- Video download (proxies the signed Google file URI; key never reaches the client) ----
+app.post("/api/studio/video/download", requireAuth, studioJson, async (req, res) => {
+  if (!aiConsentGranted(req)) return requireAiConsent(res);
+  const key = getStudioKey();
+  if (!key) return studioNotConfigured(res);
+  const { operationName } = req.body || {};
+  if (!operationName) return res.status(400).json({ error: "operationName is required." });
   try {
-    const op = new GenerateVideosOperation();
-    op.name = operationName;
-    const updated = await ai.operations.getVideosOperation({ operation: op });
-    const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
-    if (!uri) {
-      return res.status(404).json({ error: "Video URI not found or video still processing" });
-    }
-    const videoRes = await fetch(uri, {
-      headers: { 'x-goog-api-key': apiKey }
+    const r = await fetch(`${GEMINI_REST}/${operationName}`, {
+      headers: { "x-goog-api-key": key }
     });
-    res.setHeader('Content-Type', 'video/mp4');
-    const buffer = await videoRes.arrayBuffer();
-    return res.send(Buffer.from(buffer));
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json?.error?.message || `Status check failed (${r.status})`);
+    const uri = json?.response?.generatedVideos?.[0]?.video?.uri;
+    if (!uri) return res.status(404).json({ error: "Video not ready yet — still rendering.", code: "VIDEO_NOT_READY" });
+    const videoRes = await fetch(uri, { headers: { "x-goog-api-key": key } });
+    if (!videoRes.ok) throw new Error(`Video fetch failed (${videoRes.status})`);
+    res.setHeader("Content-Type", "video/mp4");
+    const buffer = Buffer.from(await videoRes.arrayBuffer());
+    return res.send(buffer);
   } catch (err: any) {
-    console.error("Video download streaming error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("Studio video-download error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to download video" });
   }
 });
 
-// ================= 6. SEARCH GROUNDING (gemini-3.5-flash with googleSearch) =================
-app.post("/api/ai/search-grounding", async (req, res) => {
-  const { query: userQuery, context = "" } = req.body;
-  const ai = getGeminiClient();
-  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
-
+// ---- Transcription ----
+app.post("/api/studio/transcribe", requireAuth, studioJson, async (req, res) => {
+  if (!aiConsentGranted(req)) return requireAiConsent(res);
+  const key = getStudioKey();
+  if (!key) return studioNotConfigured(res);
+  const ar = req as AuthedRequest;
+  const { audioBase64, mimeType = "audio/webm" } = req.body || {};
+  if (!audioBase64) return res.status(400).json({ error: "audioBase64 is required." });
   try {
-    const prompt = context
-      ? `User Operational Context: ${context}\n\nSearch Query & Real-World Truth Check: ${userQuery}`
-      : `Search Query & Real-World Truth Check: ${userQuery}`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }]
-      }
-    });
-
-    const text = response.text || "";
-    const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-    return res.json({ text, groundingMetadata });
-  } catch (err: any) {
-    console.error("Search grounding error:", err);
-    res.status(500).json({ error: err.message || "Failed to search" });
-  }
-});
-
-// ================= 7. MAPS GROUNDING (gemini-3.5-flash with googleMaps) =================
-app.post("/api/ai/maps-grounding", async (req, res) => {
-  const { query: userQuery, location = "" } = req.body;
-  const ai = getGeminiClient();
-  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
-
-  try {
-    const prompt = location
-      ? `Current Location or City: ${location}\n\nSanctuary & Micro-Adventure Request: ${userQuery}\n\nFind real, offbeat sanctuaries, quiet reading spots, public parks, or independent cafes with exact names and location context.`
-      : `Sanctuary & Micro-Adventure Request: ${userQuery}\n\nFind real, offbeat sanctuaries, quiet reading spots, public parks, or independent cafes with exact names and location context.`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        tools: [{ googleMaps: {} }]
-      }
-    });
-
-    const text = response.text || "";
-    const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-    return res.json({ text, groundingMetadata });
-  } catch (err: any) {
-    console.error("Maps grounding error:", err);
-    res.status(500).json({ error: err.message || "Failed to find places" });
-  }
-});
-
-// ================= 8. MULTI-TURN GEMINI CHATBOT =================
-// Supports gemini-3.1-pro-preview (complex tasks), gemini-3.5-flash (general tasks), gemini-3.1-flash-lite (fast tasks)
-app.post("/api/ai/chat", async (req, res) => {
-  const {
-    messages = [],
-    modelType = "general",
-    role = "Mei Sassy Mirror",
-    personaPrompt = ""
-  } = req.body;
-
-  const ai = getGeminiClient();
-  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
-
-  try {
-    let modelName = "gemini-3.5-flash";
-    if (modelType === "complex") {
-      modelName = "gemini-3.1-pro-preview";
-    } else if (modelType === "fast") {
-      modelName = "gemini-3.1-flash-lite";
-    }
-
-    const defaultSystemInstruction = `You are ${role}, a high-perceptive conversational advisor inside "Life OS: Off*Script 2027 (Chaos Year Edition)".
-Your core rule: "Boredom=Death".
-Philosophy: Anti-hustle, zero toxic positivity, psychological sovereignty, permission to leave the edges ragged, allergic to corporate platitudes.
-Be direct, deeply perceptive, witty, and grounded. Call out performative overwork while offering practical refuge.`;
-
-    const systemInstruction = personaPrompt || defaultSystemInstruction;
-
-    const contents = (messages as any[]).map((msg) => ({
-      role: msg.role === "model" ? "model" : "user",
-      parts: [{ text: msg.content }]
-    }));
-
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents,
-      config: {
-        systemInstruction
-      }
-    });
-
-    return res.json({
-      text: response.text || "",
-      modelUsed: modelName,
-      role
-    });
-  } catch (err: any) {
-    console.error("Chat API error:", err);
-    res.status(500).json({ error: err.message || "Chat failed" });
-  }
-});
-
-// ================= 9. AUDIO TRANSCRIPTION (gemini-3.5-transcribe) =================
-const handleTranscribe = async (req: express.Request, res: express.Response) => {
-  const { audioBase64, mimeType = "audio/webm" } = req.body;
-  const ai = getGeminiClient();
-  if (!ai) return res.status(500).json({ error: "Gemini API key is not configured" });
-
-  try {
-    const cleanData = audioBase64.replace(/^data:[^;]+;base64,/, "");
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-transcribe",
+    const resp = await geminiGenerateContent(key, "gemini-3.5-transcribe", {
       contents: {
         parts: [
-          {
-            inlineData: {
-              mimeType,
-              data: cleanData
-            }
-          },
-          {
-            text: "Transcribe this audio verbatim. Capture the exact spoken words without commentary or summarization."
-          }
+          { inlineData: { mimeType, data: stripDataUrlPrefix(audioBase64) } },
+          { text: "Transcribe this audio verbatim. Capture the exact spoken words without commentary or summarization." }
         ]
       }
     });
-
-    const text = response.text || "";
+    const text = resp?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+    saveStudioItem(ar.userId, ar.ud, { type: "transcript", prompt: "", resultUrl: "", transcript: text, mimeType });
     return res.json({ transcription: text, transcript: text });
   } catch (err: any) {
-    console.error("Audio transcription error:", err);
+    console.error("Studio transcribe error:", err.message);
     res.status(500).json({ error: err.message || "Transcription failed" });
   }
-};
+});
 
-app.post("/api/ai/transcribe", handleTranscribe);
-app.post("/api/ai/transcribe-audio", handleTranscribe);
+// ---- Saved studio library ----
+app.get("/api/studio/media", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  res.json(studioMediaOf(ar.ud));
+});
 
-// ================= 10. LIVE API REAL-TIME VOICE WEBSOCKET (gemini-3.8-live) =================
-function setupLiveWebSocket(wss: WebSocketServer) {
-  wss.on("connection", async (clientWs) => {
-    console.log("[Live API] Voice client connected to /live");
-    const ai = getGeminiClient();
-    if (!ai) {
-      clientWs.send(JSON.stringify({ error: "Gemini API key is not configured" }));
-      clientWs.close();
-      return;
-    }
+app.delete("/api/studio/media/:id", requireAuth, (req, res) => {
+  const ar = req as AuthedRequest;
+  const list = studioMediaOf(ar.ud);
+  const idx = list.findIndex((m) => m.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: "Not found." });
+  list.splice(idx, 1);
+  saveData(db);
+  res.json({ ok: true });
+});
 
-    try {
-      const session = await ai.live.connect({
-        model: "gemini-3.8-live",
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
-          },
-          systemInstruction: "You are Mei, the perceptive, witty, and unapologetic voice inside 2027 Life OS. You provide direct psychological clarity and zero toxic positivity in real-time spoken voice conversations."
-        },
-        callbacks: {
-          onmessage: (message: any) => {
-            const audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            const text = message.serverContent?.modelTurn?.parts?.[0]?.text;
-            if (audio) {
-              clientWs.send(JSON.stringify({ audio, text }));
-            }
-            if (message.serverContent?.interrupted) {
-              clientWs.send(JSON.stringify({ interrupted: true }));
-            }
-          },
-          onclose: () => {
-            try { clientWs.close(); } catch (e) {}
-          }
-        }
-      });
+// ================= MEI ↔ STUDIO ORCHESTRATION =================
+// Lets Mei hand off generative-media jobs to Gemini mid-conversation,
+// server-side. Mei remains the conversational front-end (bot ID, no keys);
+// Gemini stays media-only with GEMINI_API_KEY server-side.
+//
+// Intent detection is a simple keyword/pattern router — deliberately NOT a
+// second AI call. Supported trigger phrases (matched case-insensitively):
+//   MUSIC: "make me a hype track", "create a hype track", "compose a theme
+//          song", "write me an anthem", "generate a beat", "hype me up",
+//          "make music for ..."
+//   IMAGE: "design a cover image for my vision board", "create cover art",
+//          "generate an image of ...", "make me a poster", "draw/paint ..."
+//   VIDEO: "generate a video for ...", "create a video of ...", "make a video"
+// There is currently no Mei chat UI in this codebase (Mei surfaces are the
+// diagnostic card, mantra generator, and /api/diagnose), so this endpoint is
+// the wiring point: a future chat UI POSTs the user's utterance here and,
+// when intent is found, delivers the returned media inside the conversation.
+//   Request:  POST /api/mei/media-intent  { text: string }
+//   Response: { intent: null }                                            → not a media ask; Mei answers normally
+//             { intent: "music"|"image", status: "complete", ...media }     → finished media, deliver it
+//             { intent: "video", status: "complete", ... }                  → video finished within the poll window
+//             { intent: "video", status: "rendering", operationName }      → still rendering; poll /api/studio/video/status
+//             503 { code: "STUDIO_NOT_CONFIGURED" }                        → key absent; Mei says the studio is backstage
 
-      clientWs.on("message", (data) => {
-        try {
-          const parsed = JSON.parse(data.toString());
-          if (parsed.audio) {
-            session.sendRealtimeInput({
-              audio: { data: parsed.audio, mimeType: "audio/pcm;rate=16000" }
-            });
-          } else if (parsed.text) {
-            session.sendRealtimeInput({
-              text: parsed.text
-            });
-          }
-        } catch (err) {
-          console.error("Error processing client live input:", err);
-        }
-      });
+type MediaIntent = "music" | "image" | "video" | null;
 
-      clientWs.on("close", () => {
-        try { session.close(); } catch (e) {}
-      });
-    } catch (err: any) {
-      console.error("Error connecting to Gemini Live API:", err);
-      clientWs.send(JSON.stringify({ error: err.message }));
-    }
-  });
+const MEDIA_INTENT_RULES: { intent: Exclude<MediaIntent, null>; patterns: RegExp[] }[] = [
+  {
+    intent: "music",
+    patterns: [
+      /\b(make|create|generate|compose|write|produce)\b[\s\S]{0,50}?\b(hype track|theme song|anthem|jingle)\b/i,
+      /\b(make|create|generate|compose|produce)\b[\s\S]{0,50}?\b(song|track|beat)\b/i,
+      /\bhype me up\b/i,
+      /\bmusic for\b/i,
+    ],
+  },
+  {
+    intent: "image",
+    patterns: [
+      /\b(design|create|generate|make)\b[\s\S]{0,50}?\bcover (image|art)\b/i,
+      /\b(design|create|generate|make|draw|paint)\b[\s\S]{0,50}?\b(image|picture|artwork|poster)\b/i,
+      /\bvision board\b/i,
+    ],
+  },
+  {
+    intent: "video",
+    patterns: [
+      /\b(generate|create|make)\b[\s\S]{0,50}?\bvideo\b/i,
+      /\bvideo for\b/i,
+    ],
+  },
+];
+
+function detectMediaIntent(text: string): MediaIntent {
+  const t = String(text || "");
+  if (!t.trim()) return null;
+  for (const rule of MEDIA_INTENT_RULES) {
+    if (rule.patterns.some((p) => p.test(t))) return rule.intent;
+  }
+  return null;
 }
+
+app.post("/api/mei/media-intent", requireAuth, express.json(), async (req, res) => {
+  if (!aiConsentGranted(req)) return requireAiConsent(res);
+  const key = getStudioKey();
+  const ar = req as AuthedRequest;
+  const text = String(req.body?.text || "");
+  const intent = detectMediaIntent(text);
+  if (!intent) return res.json({ intent: null });
+  if (!key) return studioNotConfigured(res);
+  try {
+    if (intent === "music") {
+      const result = await runStudioMusicJob(key, ar.userId, ar.ud, { prompt: text });
+      return res.json({ intent, status: "complete", ...result });
+    }
+    if (intent === "image") {
+      const result = await runStudioImageJob(key, ar.userId, ar.ud, { prompt: text });
+      return res.json({ intent, status: "complete", ...result });
+    }
+    // Video is long-running: start it, poll briefly, hand back either the
+    // finished job or a rendering handle the chat UI can keep polling.
+    const started = await runStudioVideoJob(key, ar.userId, ar.ud, { prompt: text });
+    const polled = await pollStudioVideoDone(key, started.operationName);
+    if (polled.done && !polled.error) {
+      return res.json({ intent, status: "complete", ...started });
+    }
+    if (polled.error) throw new Error(polled.error?.message || "Video render failed");
+    return res.json({ intent, status: "rendering", ...started });
+  } catch (err: any) {
+    console.error("Mei media-intent error:", err.message);
+    res.status(err.status || 500).json({ error: err.message || "Media job failed" });
+  }
+});
 
 // Vite middleware in development & static serve in production
 async function setupViteAndListen() {
-  const httpServer = http.createServer(app);
-  const wss = new WebSocketServer({ server: httpServer, path: "/live" });
-
-  setupLiveWebSocket(wss);
-
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
@@ -1812,8 +2162,8 @@ async function setupViteAndListen() {
     });
   }
 
-  httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`2027 Life OS Server running on port ${PORT} with Gemini Live WebSocket on /live`);
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`2027 Life OS Server running on port ${PORT}`);
   });
 }
 

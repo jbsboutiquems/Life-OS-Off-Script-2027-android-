@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { UserProfile, DailyEntry, PersonalitySnapshot, AntiGoal, Goal } from '../types';
+import React, { useState, useEffect } from 'react';
+import { UserProfile, DailyEntry, PersonalitySnapshot, AntiGoal } from '../types';
 import {
   X,
   Share2,
@@ -11,10 +11,7 @@ import {
   Ban,
   Compass,
   ShieldAlert,
-  Send,
-  ExternalLink,
   Smartphone,
-  Eye,
   Camera
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -28,9 +25,9 @@ interface SocialShareModalProps {
   dailyEntry: DailyEntry;
   snapshot: PersonalitySnapshot | null;
   antiGoals?: AntiGoal[];
-  goals?: Goal[];
   initialContext?: ShareContextType;
   onToast?: (msg: string) => void;
+  onShareFired?: () => void;
 }
 
 export const SocialShareModal: React.FC<SocialShareModalProps> = ({
@@ -40,9 +37,9 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
   dailyEntry,
   snapshot,
   antiGoals = [],
-  goals = [],
   initialContext = 'daily',
-  onToast
+  onToast,
+  onShareFired
 }) => {
   const [selectedContext, setSelectedContext] = useState<ShareContextType>(initialContext);
   const [shareText, setShareText] = useState('');
@@ -50,7 +47,6 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [cardAspect, setCardAspect] = useState<'square' | 'landscape'>('square');
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Sync context when initialContext changes on open
   useEffect(() => {
@@ -59,11 +55,13 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
     }
   }, [isOpen, initialContext]);
 
-  // Determine a shareable public URL. Capacitor's local WebView URL is not
-  // shareable on Facebook, so use the repository landing page as the APK fallback.
-  const appUrl = typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)
-    ? window.location.href.split('?')[0].split('#')[0]
-    : 'https://github.com/jbsboutiquems/Life-OS-Off-Script-2027-android-';
+  // Determine current app URL
+  const appUrl = typeof window !== 'undefined' ? window.location.href.split('?')[0].split('#')[0] : 'https://lifeos2027.app';
+
+  // Points hook: fires at most once per share action; the caller dedupes (one award per day)
+  const fireShare = () => {
+    onShareFired?.();
+  };
 
   // Build snippet according to selected context
   useEffect(() => {
@@ -89,7 +87,7 @@ No toxic positivity. Living off-script.
 Pilot Designation: ${user.chaos_name || 'Unruly Sovereign'}
 Official Slogan: "${user.slogan || 'Boredom=Death'}"
 Word of the Year: "${user.word_of_the_year || 'Sovereignty'}"
-Core Manifesto: "${user.chaos_mantra || 'Reject polite busywork'}"
+ Core Manifesto: "${user.chaos_mantra || 'Reject polite busywork'}"
 
 "Not a vibe board. An operating system for sovereign living."
 #LifeOS2027 #OffScript #Identity`;
@@ -120,7 +118,7 @@ Committed to STOPPING:
 
 Detected Mood: ${snapshot?.detected_mood || 'Hyper-Reflective'}
 Burnout Risk: ${snapshot?.burnout_risk || 'Low'}
-Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.neuroticism || 42}%
+ Big 5 Radar: Openness ${snapshot?.openness ?? 85}% · Neuroticism ${snapshot?.neuroticism ?? 42}%
 
 #MeiDiagnostic #SassyMirror #PsychologicalHonesty #OffScript2027`;
     }
@@ -130,38 +128,49 @@ Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.ne
 
   if (!isOpen) return null;
 
-  // Social sharing direct handlers
+  // Social sharing direct handlers.
+  // Points fire only when the popup actually opens — a blocked popup is not a share.
+  const openSharePopup = (url: string): boolean => {
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (win) {
+      fireShare();
+      return true;
+    }
+    if (onToast) onToast('Popup was blocked — allow popups to share.');
+    return false;
+  };
+
   const handleShareTwitter = () => {
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(appUrl)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openSharePopup(url);
   };
 
   const handleShareThreads = () => {
     const fullMessage = `${shareText}\n\n${appUrl}`;
     const url = `https://www.threads.net/intent/post?text=${encodeURIComponent(fullMessage)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openSharePopup(url);
   };
 
   const handleShareLinkedIn = () => {
     const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(appUrl)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openSharePopup(url);
   };
 
   const handleShareWhatsApp = () => {
     const fullMessage = `${shareText}\n\n${appUrl}`;
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(fullMessage)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openSharePopup(url);
   };
 
   const handleShareReddit = () => {
     const title = `Life OS 2027 (Off*Script) - ${user.chaos_name}: ${user.slogan || 'Boredom=Death'}`;
     const url = `https://reddit.com/submit?url=${encodeURIComponent(appUrl)}&title=${encodeURIComponent(title)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openSharePopup(url);
   };
 
   const handleShareFacebook = () => {
-    const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(appUrl)}&quote=${encodeURIComponent(shareText)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(appUrl)}`;
+    openSharePopup(url);
   };
 
   // Native Web Share API
@@ -176,6 +185,7 @@ Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.ne
         url: appUrl
       });
       if (onToast) onToast("Shared successfully!");
+      fireShare();
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         console.warn('Share error:', err);
@@ -183,7 +193,7 @@ Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.ne
     }
   };
 
-  // Copy text to clipboard
+  // Copy text to clipboard — preparation, not a completed share: no points.
   const handleCopyText = async () => {
     try {
       await navigator.clipboard.writeText(shareText);
@@ -195,7 +205,7 @@ Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.ne
     }
   };
 
-  // Copy app link
+  // Copy app link — preparation, not a completed share: no points.
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(appUrl);
@@ -207,200 +217,204 @@ Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.ne
     }
   };
 
-  // Canvas Image Generator: Render stylish visual share card & download PNG
+  // Canvas Image Generator: Render stylish visual share card & download PNG.
+  // Points fire only after the card renders and the download is kicked off.
   const handleGenerateAndDownloadCard = () => {
     setIsGeneratingImage(true);
+    try {
+      const canvas = document.createElement('canvas');
+      const width = cardAspect === 'square' ? 1080 : 1200;
+      const height = cardAspect === 'square' ? 1080 : 630;
+      canvas.width = width;
+      canvas.height = height;
 
-    const canvas = document.createElement('canvas');
-    const width = cardAspect === 'square' ? 1080 : 1200;
-    const height = cardAspect === 'square' ? 1080 : 630;
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      setIsGeneratingImage(false);
-      return;
-    }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
     // 1. Background gradient (Deep slate luxury)
     const grad = ctx.createLinearGradient(0, 0, width, height);
-    grad.addColorStop(0, '#090d16');
-    grad.addColorStop(0.5, '#0f172a');
-    grad.addColorStop(1, '#1e1b2e');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, width, height);
+      grad.addColorStop(0, '#000a15');
+      grad.addColorStop(0.5, '#02142e');
+      grad.addColorStop(1, '#02142e');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
 
-    // 2. High-contrast border frame
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(30, 30, width - 60, height - 60);
+      // 2. High-contrast border frame
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(30, 30, width - 60, height - 60);
 
-    // Subtle gold corner ticks
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(28, 28, 40, 6);
-    ctx.fillRect(28, 28, 6, 40);
-    ctx.fillRect(width - 68, 28, 40, 6);
-    ctx.fillRect(width - 34, 28, 6, 40);
-    ctx.fillRect(28, height - 34, 40, 6);
-    ctx.fillRect(28, height - 68, 6, 40);
-    ctx.fillRect(width - 68, height - 34, 40, 6);
-    ctx.fillRect(width - 34, height - 68, 6, 40);
+      // Subtle gold corner ticks
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(28, 28, 40, 6);
+      ctx.fillRect(28, 28, 6, 40);
+      ctx.fillRect(width - 68, 28, 40, 6);
+      ctx.fillRect(width - 34, 28, 6, 40);
+      ctx.fillRect(28, height - 34, 40, 6);
+      ctx.fillRect(28, height - 68, 6, 40);
+      ctx.fillRect(width - 68, height - 34, 40, 6);
+      ctx.fillRect(width - 34, height - 68, 6, 40);
 
-    // 3. Header badges
-    ctx.fillStyle = '#e11d48';
-    ctx.beginPath();
-    ctx.roundRect(70, 70, 240, 38, 6);
-    ctx.fill();
+      // 3. Header badges
+      ctx.fillStyle = '#ea4798';
+      ctx.beginPath();
+      ctx.roundRect(70, 70, 240, 38, 6);
+      ctx.fill();
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px "DM Mono", monospace';
-    ctx.fillText('LIFE OS · OFF*SCRIPT', 88, 95);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 16px "DM Mono", monospace';
+      ctx.fillText('LIFE OS · OFF*SCRIPT', 88, 95);
 
-    ctx.fillStyle = '#fbbf24';
-    ctx.font = 'bold 16px "DM Mono", monospace';
-    ctx.fillText(`CHAOS 2027`, 330, 95);
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 16px "DM Mono", monospace';
+      ctx.fillText(`CHAOS 2027`, 330, 95);
 
-    // Pilot Tag
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '16px "DM Mono", monospace';
-    ctx.fillText(`PILOT: ${user.chaos_name || 'UNRULY SOVEREIGN'}`, width - 380, 95);
+      // Pilot Tag
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '16px "DM Mono", monospace';
+      ctx.fillText(`PILOT: ${user.chaos_name || 'UNRULY SOVEREIGN'}`, width - 380, 95);
 
-    // 4. Slogan Pill
-    ctx.fillStyle = '#fef3c7';
-    ctx.beginPath();
-    ctx.roundRect(70, 130, 320, 36, 6);
-    ctx.fill();
+      // 4. Slogan Pill
+      ctx.fillStyle = '#fef3c7';
+      ctx.beginPath();
+      ctx.roundRect(70, 130, 320, 36, 6);
+      ctx.fill();
 
-    ctx.fillStyle = '#78350f';
-    ctx.font = 'bold 15px "DM Mono", monospace';
-    ctx.fillText(`SLOGAN: "${user.slogan || 'Boredom=Death'}"`, 85, 154);
+      ctx.fillStyle = '#78350f';
+      ctx.font = 'bold 15px "DM Mono", monospace';
+      ctx.fillText(`SLOGAN: "${user.slogan || 'Boredom=Death'}"`, 85, 154);
 
-    // 5. Card Main Title
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 44px "Fraunces", Georgia, serif';
-    let cardTitle = "Today's Living Flight Log";
-    if (selectedContext === 'identity') cardTitle = "Sovereign Identity Protocol";
-    if (selectedContext === 'mantra') cardTitle = "Daily Edge Launch Mantra";
-    if (selectedContext === 'antigoals') cardTitle = "Subtractive Protocol (Anti-Goals)";
-    if (selectedContext === 'diagnostic') cardTitle = "Mei Sassy Mirror Reality Check";
-    ctx.fillText(cardTitle, 70, 230);
+      // 5. Card Main Title
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 44px "Fraunces", Georgia, serif';
+      let cardTitle = "Today's Living Flight Log";
+      if (selectedContext === 'identity') cardTitle = "Sovereign Identity Protocol";
+      if (selectedContext === 'mantra') cardTitle = "Daily Edge Launch Mantra";
+      if (selectedContext === 'antigoals') cardTitle = "Subtractive Protocol (Anti-Goals)";
+      if (selectedContext === 'diagnostic') cardTitle = "Mei Sassy Mirror Reality Check";
+      ctx.fillText(cardTitle, 70, 230);
 
-    // 6. Highlight Quote Box
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-    const boxY = 260;
-    const boxHeight = cardAspect === 'square' ? 460 : 230;
-    ctx.beginPath();
-    ctx.roundRect(70, boxY, width - 140, boxHeight, 16);
-    ctx.fill();
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+      // 6. Highlight Quote Box
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+      const boxY = 260;
+      const boxHeight = cardAspect === 'square' ? 460 : 230;
+      ctx.beginPath();
+      ctx.roundRect(70, boxY, width - 140, boxHeight, 16);
+      ctx.fill();
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
-    // Text inside box
-    let quote = `"${dailyEntry.morning_intention || 'Today I am choosing steadiness over optimization.'}"`;
-    if (selectedContext === 'identity') {
-      quote = `Word of the Year: "${user.word_of_the_year || 'Sovereignty'}"\nCore Rule: "${user.chaos_mantra || 'Reject polite busywork and artificial deadlines.'}"`;
-    } else if (selectedContext === 'mantra') {
-      quote = `"${dailyEntry.morning_intention || 'I refuse to perform enthusiasm for tasks that drain my soul.'}"`;
-    } else if (selectedContext === 'antigoals') {
-      const activeStopped = antiGoals.filter(a => a.is_completed).length;
-      quote = `Commitments Quashed: ${activeStopped} Bad Habits Stopped.\n"A crossed-out obligation creates more peace than ten completed to-do items."`;
-    } else if (selectedContext === 'diagnostic') {
-      quote = `"${snapshot?.ai_feedback || 'You crave order, but the minute things are too tidy, you deliberately shake the snowglobe.'}"`;
-    }
-
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = 'italic 28px "Fraunces", serif';
-
-    // Word wrap helper
-    const words = quote.split(' ');
-    let line = '';
-    let currentY = boxY + 70;
-    const maxWidth = width - 240;
-
-    for (let i = 0; i < words.length; i++) {
-      if (words[i].includes('\n')) {
-        const parts = words[i].split('\n');
-        line += parts[0];
-        ctx.fillText(line, 110, currentY);
-        currentY += 44;
-        line = parts[1] + ' ';
-        continue;
+      // Text inside box
+      let quote = `"${dailyEntry.morning_intention || 'Today I am choosing steadiness over optimization.'}"`;
+      if (selectedContext === 'identity') {
+        quote = `Word of the Year: "${user.word_of_the_year || 'Sovereignty'}"\nCore Rule: "${user.chaos_mantra || 'Reject polite busywork and artificial deadlines.'}"`;
+      } else if (selectedContext === 'mantra') {
+        quote = `"${dailyEntry.morning_intention || 'I refuse to perform enthusiasm for tasks that drain my soul.'}"`;
+      } else if (selectedContext === 'antigoals') {
+        const activeStopped = antiGoals.filter(a => a.is_completed).length;
+        quote = `Commitments Quashed: ${activeStopped} Bad Habits Stopped.\n"A crossed-out obligation creates more peace than ten completed to-do items."`;
+      } else if (selectedContext === 'diagnostic') {
+        quote = `"${snapshot?.ai_feedback || 'You crave order, but the minute things are too tidy, you deliberately shake the snowglobe.'}"`;
       }
 
-      const testLine = line + words[i] + ' ';
-      const metrics = ctx.measureText(testLine);
-      if (metrics.width > maxWidth && i > 0) {
-        ctx.fillText(line, 110, currentY);
-        line = words[i] + ' ';
-        currentY += 44;
-        if (currentY > boxY + boxHeight - 40) break;
-      } else {
-        line = testLine;
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'italic 28px "Fraunces", serif';
+
+      // Word wrap helper
+      const words = quote.split(' ');
+      let line = '';
+      let currentY = boxY + 70;
+      const maxWidth = width - 240;
+
+      for (let i = 0; i < words.length; i++) {
+        if (words[i].includes('\n')) {
+          const parts = words[i].split('\n');
+          line += parts[0];
+          ctx.fillText(line, 110, currentY);
+          currentY += 44;
+          line = parts[1] + ' ';
+          continue;
+        }
+
+        const testLine = line + words[i] + ' ';
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && i > 0) {
+          ctx.fillText(line, 110, currentY);
+          line = words[i] + ' ';
+          currentY += 44;
+          if (currentY > boxY + boxHeight - 40) break;
+        } else {
+          line = testLine;
+        }
       }
+      if (line && currentY <= boxY + boxHeight - 30) {
+        ctx.fillText(line, 110, currentY);
+      }
+
+      // 7. Chaos Score & Stats at bottom of card
+      const footerY = cardAspect === 'square' ? 820 : 540;
+
+      // Metric 1: Chaos Rating
+      ctx.fillStyle = 'rgba(234, 71, 152, 0.15)';
+      ctx.beginPath();
+      ctx.roundRect(70, footerY, 260, 90, 12);
+      ctx.fill();
+      ctx.strokeStyle = '#ea4798';
+      ctx.stroke();
+
+      ctx.fillStyle = '#f49ac2';
+      ctx.font = 'bold 13px "DM Mono", monospace';
+      ctx.fillText('CHAOS INTENSITY', 90, footerY + 32);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 36px "DM Mono", monospace';
+      ctx.fillText(`${dailyEntry.chaos_score || 7} / 10`, 90, footerY + 72);
+
+      // Metric 2: Word of the Year
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.15)';
+      ctx.beginPath();
+      ctx.roundRect(350, footerY, 320, 90, 12);
+      ctx.fill();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.stroke();
+
+      ctx.fillStyle = '#fde68a';
+      ctx.font = 'bold 13px "DM Mono", monospace';
+      ctx.fillText('WORD OF THE YEAR', 370, footerY + 32);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 28px "Fraunces", Georgia, serif';
+      ctx.fillText(`"${user.word_of_the_year || 'Sovereign'}"`, 370, footerY + 70);
+
+      // Brand Watermark on the right
+      ctx.fillStyle = '#64748b';
+      ctx.font = '14px "DM Mono", monospace';
+      ctx.fillText('LIFE OS 2027 · OFF*SCRIPT', width - 300, footerY + 45);
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText('No Toxic Positivity Engine', width - 300, footerY + 70);
+
+      // Confetti & download
+      confetti({
+        particleCount: 50,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = `offscript-share-${selectedContext}-${dailyEntry.entry_date}.png`;
+      link.href = dataUrl;
+      link.click();
+      fireShare();
+
+      if (onToast) onToast("Visual Social Card downloaded! Ready for Stories & Feed.");
+    } catch (err) {
+      console.warn('Card generation failed:', err);
+      if (onToast) onToast("Card generation hiccuped — try again.");
+    } finally {
+      setIsGeneratingImage(false);
     }
-    if (line && currentY <= boxY + boxHeight - 30) {
-      ctx.fillText(line, 110, currentY);
-    }
-
-    // 7. Chaos Score & Stats at bottom of card
-    const footerY = cardAspect === 'square' ? 820 : 540;
-
-    // Metric 1: Chaos Rating
-    ctx.fillStyle = 'rgba(225, 29, 72, 0.15)';
-    ctx.beginPath();
-    ctx.roundRect(70, footerY, 260, 90, 12);
-    ctx.fill();
-    ctx.strokeStyle = '#e11d48';
-    ctx.stroke();
-
-    ctx.fillStyle = '#fda4af';
-    ctx.font = 'bold 13px "DM Mono", monospace';
-    ctx.fillText('CHAOS INTENSITY', 90, footerY + 32);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 36px "DM Mono", monospace';
-    ctx.fillText(`${dailyEntry.chaos_score || 7} / 10`, 90, footerY + 72);
-
-    // Metric 2: Word of the Year
-    ctx.fillStyle = 'rgba(245, 158, 11, 0.15)';
-    ctx.beginPath();
-    ctx.roundRect(350, footerY, 320, 90, 12);
-    ctx.fill();
-    ctx.strokeStyle = '#f59e0b';
-    ctx.stroke();
-
-    ctx.fillStyle = '#fde68a';
-    ctx.font = 'bold 13px "DM Mono", monospace';
-    ctx.fillText('WORD OF THE YEAR', 370, footerY + 32);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 28px "Fraunces", Georgia, serif';
-    ctx.fillText(`"${user.word_of_the_year || 'Sovereign'}"`, 370, footerY + 70);
-
-    // Brand Watermark on the right
-    ctx.fillStyle = '#64748b';
-    ctx.font = '14px "DM Mono", monospace';
-    ctx.fillText('LIFE OS 2027 · OFF*SCRIPT', width - 300, footerY + 45);
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText('No Toxic Positivity Engine', width - 300, footerY + 70);
-
-    // Confetti & download
-    confetti({
-      particleCount: 50,
-      spread: 70,
-      origin: { y: 0.6 }
-    });
-
-    const dataUrl = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
-    link.download = `offscript-share-${selectedContext}-${dailyEntry.entry_date}.png`;
-    link.href = dataUrl;
-    link.click();
-
-    setIsGeneratingImage(false);
-    if (onToast) onToast("Visual Social Card downloaded! Ready for Stories & Feed.");
   };
 
   return (
@@ -411,7 +425,7 @@ Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.ne
         aria-modal="true"
       >
         {/* Modal Header */}
-        <div className="bg-[#0f172a] text-white px-5 py-4 border-b border-stone-800 flex items-center justify-between shrink-0">
+        <div className="bg-[#02142e] text-white px-5 py-4 border-b border-stone-800 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-lg bg-rose-600 flex items-center justify-center text-white">
               <Share2 className="w-4 h-4" />
@@ -579,19 +593,6 @@ Big 5 Radar: Openness ${snapshot?.openness || 85}% · Neuroticism ${snapshot?.ne
                   <path d="M12.186 24C5.503 24 0 18.608 0 12.053 0 5.498 5.503.107 12.186.107c6.613 0 12.072 5.253 12.072 11.758 0 3.823-1.848 7.377-5.071 9.754l-1.397-1.745c2.657-1.961 4.18-4.908 4.18-8.009 0-5.187-4.372-9.47-9.784-9.47-5.412 0-9.896 4.283-9.896 9.47 0 5.186 4.484 9.47 9.896 9.47 3.328 0 6.37-1.637 8.134-4.378l1.838 1.183C19.866 21.902 16.208 24 12.186 24zm4.18-12.053c0-2.31-1.874-4.185-4.18-4.185-2.307 0-4.181 1.875-4.181 4.185s1.874 4.186 4.181 4.186c2.306 0 4.18-1.876 4.18-4.186z"/>
                 </svg>
                 <span>Share to Threads</span>
-              </button>
-
-              {/* Facebook */}
-              <button
-                type="button"
-                id="share-facebook-btn"
-                onClick={handleShareFacebook}
-                className="flex items-center justify-center space-x-2 px-3.5 py-2.5 bg-[#1877F2] hover:bg-[#0d65d9] text-white rounded-xl text-xs font-bold transition-all shadow-xs"
-              >
-                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.09 4.39 23.06 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.05 1.79-4.75 4.58-4.75 1.33 0 2.72.24 2.72.24v3.02h-1.53c-1.51 0-1.98.94-1.98 1.9v2.25h3.37l-.54 3.49h-2.83V24C19.61 23.06 24 18.09 24 12.07z" />
-                </svg>
-                <span>Share to Facebook</span>
               </button>
 
               {/* LinkedIn */}

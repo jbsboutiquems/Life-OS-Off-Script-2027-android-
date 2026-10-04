@@ -1,0 +1,205 @@
+Num pages: 7
+--- PAGE 1 ---
+L I F E  O S  ·  O F F * S C R I P T  ·  C O M P L E T E  S U M M A R Y
+Life OS, whole and
+inclusive.
+The brand, the planners, the app, the private network, the book device, and
+the mission - in one document, written so anyone can pick it up and belong
+here.
+The promise: “Do diﬀerent, think diﬀerent, be diﬀerent - Be Oﬀ*Script.” Secondary hook: “Shake
+up your life.” Product slogan: Boredom = Death.
+Created by Amber Marie Wiggins, Kosciusko, Mississippi. Contact: lifeosoﬀscript@gmail.com · Main site:
+lifeosoﬀscript.my.canva.site/home
+1 / 7
+--- PAGE 2 ---
+T H E  M I S S I O N
+Not a productivity system. A mirror.
+Life OS exists for people who are done performing productivity. It does not ask anyone to optimize,
+hustle, or keep up. It asks them to notice their own life, write it down honestly, and change it on
+purpose. The one-liner that holds the whole brand together: Oﬀ*Script is a life design brand that
+helps people stop living by default and start living diﬀerently, intentionally, and on purpose.
+The philosophy, in ﬁve lines
+Chaos is not disorder. A messy season is material, not failure.
+Monotony equals death. The slogan on the product is Boredom = Death - boredom is for the
+average person; this brand is not for average.
+Values before performance. What matters to you outranks how impressive it looks.
+Identity evolves. You are allowed to become someone else, more than once.
+Learn who you are, one year at a time. Growth is annual, seasonal, and patient - organized
+around one word a year and no more than six core focal goals.
+Who made it, and why it sounds like this
+Life OS was created by Amber Marie Wiggins of Kosciusko, Mississippi - entrepreneur, designer of
+personal organization systems, and author of a book in progress. Her named creative inspiration is
+Benrik (Ben Carey and Henrik Delehag), the London duo behind the absurd daily-task diaries that sold
+more than 400,000 copies. Her standing creative rule follows from that lineage: start outrageous and
+loud, then tone down - because starting moderate and trying to get louder later never works. The
+voice stays irreverent and anti-performative on purpose; anything that sounds like optimization
+theater gets cut.
+The brand system
+Colors are navy, cream, teal, hot pink, and gold, with a compass-and-star motif and the styled name
+Oﬀ*Script. Editions are color-coded by year: 2027 is the classic teal-and-pink cosmic nebula, 2028 is
+aurora-and-cosmic zodiac styling, and 2029 is gold nebula. The website's pink-teal theme (teal
+#2da2ee, hot pink #ea4798 on cosmic dark) is the reference the ﬂagship PDF and the app match.
+2 / 7
+--- PAGE 3 ---
+T H E  P R O D U C T  E C O S Y S T E M
+Eight ways to be diﬀerent
+Every product is the same promise in a diﬀerent form. The map below is the whole line at a glance -
+each row is one way of living diﬀerently, and the product built to carry it.
+DIFFERENT HOW PRODUCT WHAT IT IS
+Do Chaos Year (dated ﬂagship) The year-long dated companion - the ﬂagship
+planner.
+Start Undated editions Begin any day of the year; no dead pages waiting on
+January.
+Marry Wedding line Becoming an Oﬀ*Script Bride in 365 Days, plus the
+free wedding-party app.
+Think Zodiac editions Twelve zodiac covers, astrology woven into the year.
+Reﬂect The Life OS app Daily entries, debriefs, and Ask Mei in your pocket.
+See yourself Mei The AI companion who reads your week back to you
+(see page 5).
+Measure Anti-goals Track what you are refusing, not just what you are
+chasing.
+Live Challenges Daily Chaos Challenges and GPS-style missions that
+get you out the door.
+The 2027 Chaos Year ﬂagship
+The ﬂagship is a 1,252-page dated planner (the current master is version 5) built around 365 daily
+spreads, weekly debriefs, and monthly and quarterly reviews, with Oﬀ*Script asterisks and Boredom =
+Death headers throughout and the Life OS footer on every page. A proofread by CreaO caught real
+print defects - a text overlap on the January 4 spread, stray white boxes over header ﬁelds, and an
+obsolete website URL still sitting on twelve monthly dividers - and those ﬁxes are queued for a version
+6 before anything goes to print. That is the process working as intended: the book gets read hard
+before a buyer ever sees it.
+The physical Chaos Year Kit is two hardcover spiral volumes (about 612 pages each), sticker sheets, a
+pen or marker, a snap-in bookmark, a magnet, a bumper sticker, app access, and the standard digital
+PDF. Pricing waits on the printer's quote on purpose - the rule is a thin margin is ﬁne, but the buyer
+must feel they got their money's worth.
+3 / 7
+--- PAGE 4 ---
+M O R E  P L A N N E R S  ·  T H E  A P P
+The wedding line, and Life OS in your pocket
+Becoming an Oﬀ*Script Bride in 365 Days
+The wedding planner is a 511-page book (renamed September 26, 2026) that passed full quality
+review, with a Dress Studio section at pages 492-502. Provisional pricing is $20 pre-order, $25 after the
+drop, and $40 printed. The twelve zodiac editions run 1,289 pages - beyond print-on-demand limits,
+so they are PDF-only unless split into volumes.
+The companion wedding app is deliberately free and link-based, with no license wall: party members
+open their own HQ page by link, one page per role across all seven wedding-party roles, with roles the
+couple can add, delete, or restore. The old bride-to-maid-of-honor chat wall was replaced with
+“magic” post-it notes on the HQ page - no direct messages, no backend, nothing to moderate. Paid
+value lives in the print and PDF; the app is the funnel.
+The Life OS app
+The app is a web app at heart - React and TypeScript with a Node backend - wrapped in a native
+Android shell with Capacitor, so it installs as a sideloadable APK, runs in any browser, and adds to a
+phone's home screen. An Android debug build (app ID app.oﬀscript.lifeos) was veriﬁed October 2,
+2026; iOS is scaﬀolded and needs a Mac to build; the desktop experience is the browser and
+progressive web app.
+Daily life, structured: daily entries with a real 365-day holiday mapping, weekly debriefs, and
+snapshots Mei can read back to you.
+Pinned days that are ours: February 9 is Mardi Gras, April 20 is High Spirits Day, and September
+27 - the founder's birthday - is Founder's Day, in hot pink and neon cyan. The app's daily view
+mirrors the ﬂagship's special spreads.
+Sign-on, your choice: Google, Apple, Facebook, email, and SMS were all approved; Google,
+Facebook, and email are free, while Apple and SMS stay dark until spending is approved.
+Hardened, not hopeful: admin authentication on the hidden wall, user blocking, and passing lint,
+build, and tests as of the September 26, 2026 hardening pass.
+Honest status: the Android repository has diverged from GitHub and will not be auto-merged;
+deployment to Railway waits on the founder's account; and the apps stay local until she says
+otherwise. Open items are listed, not hidden - that is the brand.
+4 / 7
+--- PAGE 5 ---
+T H E  N E T W O R K  ·  M E I
+A mailbox, not a timeline
+The Oﬀ*Script network: private by design
+The community layer - the Chaos Wall and private direct messages - will not be openly available. It is
+gated and private, like the app itself. The rule for social is outbound-only: you message your people
+directly. There are no feeds, no scrolling, and no algorithm deciding what you see. Conversations ride
+the Life OS account, so the same people and the same threads are there whether you open the app,
+the phone, or the book device. Inside the app, the Playdate game corner keeps the same spirit - no
+timers, no scores, nothing to lose at.
+Chat is also where the device's pen earns its keep a second way: handwriting recognition turns scrawl
+into a sent text message, the way Apple Scribble and Samsung's pen-to-text already work. Write “on
+my way” in the reply box and it sends as typed text. Anything longer gets the small on-screen
+keyboard - but direct messages are short by nature, so the pen covers almost all of it.
+Mei, the AI companion
+Mei is the founder's “User Deﬁned” Messages Improved bot, and every AI endpoint in the app runs
+through Mei, called directly by bot ID - no keys, no tokens - a setup tested live on September 23,
+2026. Ask Mei pulls your last seven days of entries, recent snapshots, and your latest weekly debrief
+into the conversation, token-bounded, so Mei answers from your actual week instead of generic
+advice. The same material feeds diagnostics.
+Two exceptions were approved on October 2, 2026, and only two: Gemini powers the AI media studio
+(music, image, and video generation) and a pre-existing fallback inside the diagnostics endpoint.
+Everything else stays on Mei, and the Gemini key lives server-side only - never in the repository, never
+in the client.
+Why this matters: an AI that reads your journal is a trust decision, not a feature. One bot, one
+ID, no scattered keys - the smallest possible surface for the most personal data in the product.
+5 / 7
+--- PAGE 6 ---
+T H E  B O O K  D E V I C E  ·  I N C L U S I V E  B Y  D E S I G N
+The crease is the spine
+The hardware vision is a foldable book: one screen that opens like a paper book. The insight that
+unlocked it - in the founder's words, the crease is the spine. Nobody writes across the gutter of a
+paper book, so nobody drags a pen across the fold; the crease lands exactly where a book divides, and
+the interface simply agrees with it. It is the Nintendo DS idea at ten times the size: beloved, not weird -
+Nintendo sold 150 million of them.
+Each screen has a job: left does A, right does B - planning left, journaling right. No window
+management, ever.
+Two postures: a 360-degree friction hinge gives ﬂat book mode (primary - eyes and pen on the
+same page, like paper) and propped laptop mode, where the top screen rests or goes passive while
+you journal below.
+Built like an appliance: weight, battery, and brains on the right side for balance, a single USB-C
+port, locked bootloader with veriﬁed boot, and the Life OS interface as the whole experience -
+AOSP plumbing underneath, never exposed.
+Wi-Fi only, oﬄine-ﬁrst: everything works with no connection and syncs at home. GPS needs no
+cell signal, so geocache-style missions work in the woods with map packs downloaded ahead. “It
+cannot interrupt you from the cloud because it is not in the cloud” is a selling point.
+Not for 2027: the horizon after the paper planner and the app. Prototyping starts on existing
+hardware - a Lenovo ThinkPad X1 Fold (16-inch) or ASUS Zenbook 17 Fold is the dev kit today.
+Nobody's hands are wrong
+Inclusion is a speciﬁcation here, not a paragraph of good intentions. The input trio covers every hand -
+and no hands:
+INPUT HOW IT WORKS
+Pen-ﬁrst Haptic stylus on a textured, paper-feel screen; handwriting-to-text keeps the
+journal searchable without typing. Rollable screens were considered and rejected -
+a scroll is not a book.
+Keyboard-only mode A full setting: everything reachable from the on-screen keyboard, no stylus
+required. The popup keyboard otherwise appears only for passwords, search, and
+URLs.
+Voice Full voice control and dictation - the whole device operable hands-free. Dictating a
+Chaos Wall post while pacing the kitchen may be the most Oﬀ*Script thing it does.
+Signing (roadmap) Fingerspelling-to-text (26 letters plus numbers, camera-based) is the tractable ﬁrst
+step. Full sign language recognition is a research problem industry-wide and is
+claimed as a horizon goal, not a shipped promise. All camera processing runs on-
+device - a camera that watches your hands never phones home.
+6 / 7
+--- PAGE 7 ---
+H O W  I T  R E A C H E S  P E O P L E
+Sold online, made honestly, reviewed in public
+Where and how it sells
+Life OS is online-only - no in-person sales. The ﬂagship pre-order is $19 via PayPal
+(paypal.me/AmberWiggins0927): the Canva Shop button leads to the WordPress order page (delivery
+email, dedication name, quantity, notes), then to PayPal in a new tab. The Canva site (published
+October 1, 2026) is the main site; WordPress carries the order ﬂow, shop tabs, and the Khaos Krew
+signup as its homepage.
+Printing is self-fulﬁlled: print-on-demand author copies, kits assembled and shipped at home.
+Lawrence Printing conﬁrmed (October 3, 2026) there is no POD path with iridescent foil covers - so the
+open choice is POD without foil or oﬀset with foil. The quote call decides; nothing ships before it
+lands.
+The Khaos Krew
+The launch is being reviewed before it is sold. The Khaos Krew - writers, coders, editors, and the
+extremely bored - signs up through the WordPress homepage to review the entire product: a nine-
+ﬁeld form asking for a full-review commitment, a slogan screener, and a no-ghosting pledge.
+The roadmap, without varnish
+HORIZON WHAT HAPPENS
+Now Flagship version 6 print ﬁxes; the printer quote call (POD vs. oﬀset, foil decision); the
+October social calendar already scheduled and running.
+Next App deployment decisions - hosting, repository reconciliation, sign-on spending - each
+the founder's explicit call, in order.
+Horizon The foldable book device, prototyped on existing foldable laptops; full sign-language
+recognition as the research matures.
+Contact - one spelling, everywhere
+Email lifeosoﬀscript@gmail.com · Amber@lifeosoﬀscript.info
+Main site lifeosoﬀscript.my.canva.site/home
+WordPress lifeosoﬀscript.wordpress.com - shop, order page, and Join the Khaos Krew
+Facebook The Life OS Planner - facebook.com/proﬁle.php?id=61594985962705
+Support the work paypal.me/AmberWiggins0927 (donor-chosen amount)
+Compiled October 2026 from the founder's own records; where a decision is open, this document says so.
+7 / 7

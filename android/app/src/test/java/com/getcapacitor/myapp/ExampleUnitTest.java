@@ -1,4 +1,4 @@
-package com.snoopyscloset.lifeos.offscript2027;
+package app.offscript.lifeos;
 
 import static org.junit.Assert.*;
 

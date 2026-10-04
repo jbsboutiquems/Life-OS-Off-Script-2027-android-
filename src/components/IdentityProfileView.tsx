@@ -1,18 +1,17 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
-import { ShieldAlert, Save, Sparkles, User, Key, Flame, Wand2, Loader2, BrainCircuit, Check, Share2 } from 'lucide-react';
+import { ShieldAlert, Save, Sparkles, User, Key, Flame, KeyRound, X } from 'lucide-react';
 import { api } from '../services/api';
+import { RecoveryCodeReveal } from './RecoveryCodeReveal';
 
 interface IdentityProfileViewProps {
   user: UserProfile;
   onSaveProfile: (profile: Partial<UserProfile>) => void;
-  onOpenShare?: () => void;
 }
 
 export const IdentityProfileView: React.FC<IdentityProfileViewProps> = ({
   user,
-  onSaveProfile,
-  onOpenShare
+  onSaveProfile
 }) => {
   const [chaosName, setChaosName] = useState(user.chaos_name || '');
   const [wordOfYear, setWordOfYear] = useState(user.word_of_the_year || '');
@@ -22,55 +21,51 @@ export const IdentityProfileView: React.FC<IdentityProfileViewProps> = ({
   const [whatReadyToAdmit, setWhatReadyToAdmit] = useState(user.what_ready_to_admit || '');
   const [relationshipWithChaos, setRelationshipWithChaos] = useState(user.relationship_with_chaos || '');
   const [permissionGranted, setPermissionGranted] = useState(user.permission_granted || '');
+  const [birthday, setBirthday] = useState(user.birthday || '');
+  const [birthTime, setBirthTime] = useState(user.birth_time || '');
+  const [birthplace, setBirthplace] = useState(user.birthplace || '');
   const [isSaved, setIsSaved] = useState(false);
+  const [newCode, setNewCode] = useState<string | null>(null);
+  const [rotating, setRotating] = useState(false);
+  const [rotateError, setRotateError] = useState<string | null>(null);
+  const [newUsername, setNewUsername] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renameSuggestions, setRenameSuggestions] = useState<string[]>([]);
+  const [renameOk, setRenameOk] = useState<string | null>(null);
 
-  // AI Identity Probe State
-  const [isProbing, setIsProbing] = useState(false);
-  const [aiSuggestions, setAiSuggestions] = useState<{
-    done_pretending?: string;
-    ready_to_admit?: string;
-    mantra?: string;
-    permission?: string;
-  } | null>(null);
-
-  const handleRunIdentityProbe = async () => {
-    setIsProbing(true);
+  const changeUsername = async () => {
+    setRenameError(null);
+    setRenameSuggestions([]);
+    setRenameOk(null);
+    setRenaming(true);
     try {
-      const response = await api.askMei({
-        message: `Act as Mei the zero-BS diagnostic mirror. The user has chosen the Word of the Year: "${wordOfYear || 'UNGOVERNABLE'}" and Alias: "${chaosName || 'The Sovereign Rebel'}". 
-Current "done pretending": "${whatDonePretending}"
-Current "ready to admit": "${whatReadyToAdmit}".
-Generate 4 sharp, brave, anti-pretense statements formatted strictly as JSON with keys:
-"done_pretending" (one brutal thing to stop faking),
-"ready_to_admit" (one radical self-truth to acknowledge),
-"mantra" (a punchy sovereign mantra for 2027),
-"permission" (what they officially permit themselves to do without guilt).`,
-        conversation_history: []
-      });
-
-      // Parse JSON from Mei's reply
-      const reply = response.reply || '';
-      const jsonMatch = reply.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        setAiSuggestions(JSON.parse(jsonMatch[0]));
-      } else {
-        setAiSuggestions({
-          done_pretending: "Pretending I need consensus from people whose lives I wouldn't trade for.",
-          ready_to_admit: "I work in explosive, nonlinear bursts and trying to behave like an assembly line is killing my spirit.",
-          mantra: "Motion over justification. The map is drawn in ink, not stone.",
-          permission: "To leave rooms that demand my shrinking, without an exit speech."
-        });
-      }
-    } catch (e) {
-      console.error(e);
-      setAiSuggestions({
-        done_pretending: "Pretending I need consensus from people whose lives I wouldn't trade for.",
-        ready_to_admit: "I work in explosive, nonlinear bursts and trying to behave like an assembly line is killing my spirit.",
-        mantra: "Motion over justification. The map is drawn in ink, not stone.",
-        permission: "To leave rooms that demand my shrinking, without an exit speech."
-      });
+      const result = await api.changeUsername(newUsername.trim());
+      // Keep the header/profile in lockstep: the server syncs the display name
+      // when it was still the old username; mirror it locally either way.
+      const syncedName = result.chaosName || result.username;
+      setChaosName(syncedName);
+      onSaveProfile({ chaos_name: syncedName });
+      setRenameOk(`You are now “${result.username}” everywhere — wall, inbox, all of it.`);
+      setNewUsername('');
+    } catch (err: any) {
+      setRenameError(err instanceof Error ? err.message : 'Could not change username.');
+      if (Array.isArray(err?.suggestions)) setRenameSuggestions(err.suggestions);
     } finally {
-      setIsProbing(false);
+      setRenaming(false);
+    }
+  };
+
+  const rotateCode = async () => {
+    setRotateError(null);
+    setRotating(true);
+    try {
+      const result = await api.rotateRecoveryCode();
+      setNewCode(result.recoveryCode);
+    } catch (err) {
+      setRotateError(err instanceof Error ? err.message : 'Could not mint a new code.');
+    } finally {
+      setRotating(false);
     }
   };
 
@@ -84,7 +79,10 @@ Generate 4 sharp, brave, anti-pretense statements formatted strictly as JSON wit
       what_done_pretending: whatDonePretending.trim(),
       what_ready_to_admit: whatReadyToAdmit.trim(),
       relationship_with_chaos: relationshipWithChaos.trim(),
-      permission_granted: permissionGranted.trim()
+      permission_granted: permissionGranted.trim(),
+      birthday: birthday.trim(),
+      birth_time: birthTime.trim(),
+      birthplace: birthplace.trim()
     });
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2000);
@@ -93,33 +91,19 @@ Generate 4 sharp, brave, anti-pretense statements formatted strictly as JSON wit
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header Banner */}
-      <div className="bg-white border-2 border-stone-800 rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <span className="bg-rose-600 text-white text-[10px] font-mono-code font-bold uppercase px-2 py-0.5 rounded tracking-wider">
-              IDENTITY ARCHITECTURE
-            </span>
-            <span className="text-xs text-stone-500 font-mono-code">GROUND ZERO</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-bold font-serif-display text-slate-900 mt-1">
-            Identity Base &amp; Self-Sovereignty
-          </h2>
-          <p className="text-xs sm:text-sm text-stone-600 mt-1">
-            Before tracking hours or organizing tasks, define who is running the machine and what rules you have officially burned.
-          </p>
+      <div className="bg-white dark:bg-[#02142e] border-2 border-stone-800 dark:border-amber-400/40 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center space-x-2">
+          <span className="bg-rose-600 text-white text-[10px] font-mono-code font-bold uppercase px-2 py-0.5 rounded tracking-wider">
+            IDENTITY ARCHITECTURE
+          </span>
+          <span className="text-xs text-stone-500 dark:text-stone-400 font-mono-code">GROUND ZERO</span>
         </div>
-        {onOpenShare && (
-          <button
-            type="button"
-            id="share-identity-manifesto-btn"
-            onClick={onOpenShare}
-            className="self-start sm:self-auto px-4 py-2 bg-stone-900 hover:bg-black text-white text-xs font-bold font-mono-code rounded-xl flex items-center space-x-1.5 shadow-sm transition-all whitespace-nowrap"
-            title="Generate shareable Identity Manifesto card"
-          >
-            <Share2 className="w-3.5 h-3.5 text-rose-400" />
-            <span>Share Manifesto</span>
-          </button>
-        )}
+        <h2 className="text-2xl sm:text-3xl font-bold font-serif-display text-slate-900 dark:text-cream-canvas mt-1">
+          Identity Base &amp; Self-Sovereignty
+        </h2>
+        <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 mt-1">
+          Before tracking hours or organizing tasks, define who is running the machine and what rules you have officially burned.
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -175,7 +159,7 @@ Generate 4 sharp, brave, anti-pretense statements formatted strictly as JSON wit
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg bg-stone-50/50 focus:outline-rose-500 font-mono-code font-bold text-slate-900"
               />
               <span className="text-[10px] text-stone-500 mt-0.5 block font-mono-code">
-                Planner mandate: Monotony is the true mortal hazard.
+                Planner mandate: Boredom is the true mortal hazard.
               </span>
             </div>
 
@@ -194,132 +178,69 @@ Generate 4 sharp, brave, anti-pretense statements formatted strictly as JSON wit
           </div>
         </div>
 
-        {/* The Truth Box: What I'm Done Pretending */}
-        <div className="bg-[#fffdfa] rounded-2xl border-2 border-rose-300/80 p-6 shadow-xs space-y-5">
-          <div className="border-b border-rose-200 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h3 className="font-bold text-sm text-slate-900 font-display-punch uppercase flex items-center gap-2">
-                <Flame className="w-4 h-4 text-rose-600" />
-                <span>Unfiltered Truth Inventory</span>
-              </h3>
-              <p className="text-xs text-stone-500 mt-0.5">
-                The Mei Diagnostic engine checks your daily rants against these core confessions.
-              </p>
-            </div>
-            <button
-              type="button"
-              id="ai-probe-identity-btn"
-              onClick={handleRunIdentityProbe}
-              disabled={isProbing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold font-mono-code rounded-lg shadow-xs transition-all disabled:opacity-50 self-start sm:self-auto"
-              title="Have Mei probe and generate radical anti-pretense statements"
-            >
-              {isProbing ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Probing Pretense...</span>
-                </>
-              ) : (
-                <>
-                  <BrainCircuit className="w-3.5 h-3.5" />
-                  <span>AI Truth Interrogation</span>
-                </>
-              )}
-            </button>
+        {/* Cosmic Coordinates: birthday powers the Cosmic Corner */}
+        <div className="bg-gradient-to-br from-indigo-50 to-rose-50 dark:from-[#02142e] dark:to-[#1c1125] rounded-2xl border border-indigo-200 dark:border-indigo-400/30 p-6 shadow-xs space-y-5">
+          <div className="border-b border-indigo-200 dark:border-indigo-400/30 pb-3">
+            <h3 className="font-bold text-sm text-slate-900 dark:text-cream-canvas font-display-punch uppercase flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-300" />
+              <span>Cosmic Coordinates</span>
+            </h3>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+              Feeds the Cosmic Corner: your daily horoscope and your (playful) natal chart. Birth time is optional — it unlocks your for-fun rising sign.
+            </p>
           </div>
 
-          {/* AI Suggestions Panel */}
-          {aiSuggestions && (
-            <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-3 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-mono-code font-bold text-rose-900 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-rose-600" />
-                  Mei Truth Probes · Click to Adopt
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setAiSuggestions(null)}
-                  className="text-stone-400 hover:text-stone-600 font-mono-code text-xs px-1"
-                >
-                  Dismiss
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {aiSuggestions.done_pretending && (
-                  <div className="p-2.5 bg-white border border-rose-200 rounded-lg flex flex-col justify-between gap-2 shadow-2xs">
-                    <div>
-                      <span className="text-[10px] font-mono-code text-rose-800 font-bold block mb-1">
-                        Pretense Callout:
-                      </span>
-                      <p className="text-stone-800 italic">"{aiSuggestions.done_pretending}"</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setWhatDonePretending(aiSuggestions.done_pretending || '')}
-                      className="self-end text-[10px] font-mono-code font-bold px-2 py-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
-                    >
-                      Use as Done Pretending
-                    </button>
-                  </div>
-                )}
-
-                {aiSuggestions.ready_to_admit && (
-                  <div className="p-2.5 bg-white border border-rose-200 rounded-lg flex flex-col justify-between gap-2 shadow-2xs">
-                    <div>
-                      <span className="text-[10px] font-mono-code text-rose-800 font-bold block mb-1">
-                        Radical Self-Admission:
-                      </span>
-                      <p className="text-stone-800 italic">"{aiSuggestions.ready_to_admit}"</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setWhatReadyToAdmit(aiSuggestions.ready_to_admit || '')}
-                      className="self-end text-[10px] font-mono-code font-bold px-2 py-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
-                    >
-                      Use as Ready to Admit
-                    </button>
-                  </div>
-                )}
-
-                {aiSuggestions.mantra && (
-                  <div className="p-2.5 bg-white border border-rose-200 rounded-lg flex flex-col justify-between gap-2 shadow-2xs">
-                    <div>
-                      <span className="text-[10px] font-mono-code text-rose-800 font-bold block mb-1">
-                        Sovereign Mantra:
-                      </span>
-                      <p className="text-stone-800 italic">"{aiSuggestions.mantra}"</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setChaosMantra(aiSuggestions.mantra || '')}
-                      className="self-end text-[10px] font-mono-code font-bold px-2 py-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
-                    >
-                      Adopt as Operating Mantra
-                    </button>
-                  </div>
-                )}
-
-                {aiSuggestions.permission && (
-                  <div className="p-2.5 bg-white border border-rose-200 rounded-lg flex flex-col justify-between gap-2 shadow-2xs">
-                    <div>
-                      <span className="text-[10px] font-mono-code text-rose-800 font-bold block mb-1">
-                        Irrevocable Permission:
-                      </span>
-                      <p className="text-stone-800 italic">"{aiSuggestions.permission}"</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setPermissionGranted(aiSuggestions.permission || '')}
-                      className="self-end text-[10px] font-mono-code font-bold px-2 py-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
-                    >
-                      Adopt as Permission Slip
-                    </button>
-                  </div>
-                )}
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+            <div>
+              <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1">
+                Birthday:
+              </label>
+              <input
+                type="date"
+                value={birthday}
+                onChange={(e) => setBirthday(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-300 dark:border-white/15 rounded-lg bg-stone-50/50 dark:bg-white/5 focus:outline-indigo-500 font-semibold text-slate-900 dark:text-cream-canvas"
+              />
             </div>
-          )}
+
+            <div>
+              <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1">
+                Birth time <span className="text-stone-400 font-normal font-mono-code">(optional)</span>:
+              </label>
+              <input
+                type="time"
+                value={birthTime}
+                onChange={(e) => setBirthTime(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-300 dark:border-white/15 rounded-lg bg-stone-50/50 dark:bg-white/5 focus:outline-indigo-500 font-semibold text-slate-900 dark:text-cream-canvas"
+              />
+            </div>
+
+            <div>
+              <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1">
+                Birthplace <span className="text-stone-400 font-normal font-mono-code">(optional)</span>:
+              </label>
+              <input
+                type="text"
+                value={birthplace}
+                onChange={(e) => setBirthplace(e.target.value)}
+                placeholder="e.g. Kosciusko, MS"
+                className="w-full px-3 py-2 border border-stone-300 dark:border-white/15 rounded-lg bg-stone-50/50 dark:bg-white/5 focus:outline-indigo-500 font-semibold text-slate-900 dark:text-cream-canvas"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* The Truth Box: What I'm Done Pretending */}
+        <div className="bg-[#fffdfa] rounded-2xl border-2 border-rose-300/80 p-6 shadow-xs space-y-5">
+          <div className="border-b border-rose-200 pb-3">
+            <h3 className="font-bold text-sm text-slate-900 font-display-punch uppercase flex items-center gap-2">
+              <Flame className="w-4 h-4 text-rose-600" />
+              <span>Unfiltered Truth Inventory</span>
+            </h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              The Mei Diagnostic engine checks your daily rants against these core confessions.
+            </p>
+          </div>
 
           <div className="space-y-4 text-xs">
             <div>
@@ -386,6 +307,81 @@ Generate 4 sharp, brave, anti-pretense statements formatted strictly as JSON wit
           </div>
         </div>
 
+        {/* Account safety: recovery code rotation */}
+        <div className="bg-[#fffdfa] rounded-2xl border-2 border-amber-300/80 p-6 shadow-xs space-y-3">
+          <h3 className="font-bold text-sm text-slate-900 font-display-punch uppercase flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-amber-600" />
+            <span>Account Safety</span>
+          </h3>
+          <p className="text-xs text-stone-500">
+            Your recovery code is the backup way back in if you forget your password. Accounts with a verified
+            email can also reset by email; no email on file means this code is the only way back — guard it
+            like a good parking spot.
+            Mint a fresh one any time; the old code retires immediately and the new one is shown exactly once.
+          </p>
+          <div className="pt-1 border-t border-amber-200/70">
+            <div className="text-[10px] font-mono-code font-bold uppercase tracking-widest text-stone-500 mt-3 mb-1">
+              Change username
+            </div>
+            <p className="text-xs text-stone-500 mb-2">
+              This is the name on the Chaos Wall and in inboxes. Limit: 3 changes per 24 hours.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value)}
+                placeholder={user.chaos_name || 'new username'}
+                className="flex-1 px-3 py-2 border border-stone-300 dark:border-white/15 rounded-xl bg-white dark:bg-white/5 text-sm font-semibold text-slate-900 dark:text-cream-canvas focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+              <button
+                type="button"
+                onClick={changeUsername}
+                disabled={renaming || !newUsername.trim()}
+                className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50"
+              >
+                {renaming ? 'Checking…' : 'Change it'}
+              </button>
+            </div>
+            {renameError && (
+              <div className="mt-2 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800/60 rounded-xl px-3 py-2">
+                {renameError}
+                {renameSuggestions.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {renameSuggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => { setNewUsername(s); setRenameError(null); setRenameSuggestions([]); }}
+                        className="px-2 py-1 bg-white dark:bg-white/10 border border-rose-300 dark:border-rose-700 rounded-lg font-mono-code text-[11px] hover:bg-rose-100 dark:hover:bg-white/20"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {renameOk && (
+              <p className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">{renameOk}</p>
+            )}
+          </div>
+          {rotateError && (
+            <div className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-300 rounded-xl px-3 py-2">
+              {rotateError}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={rotateCode}
+            disabled={rotating}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all disabled:opacity-50"
+          >
+            <Key className="w-4 h-4" />
+            {rotating ? 'Minting…' : 'Get a new recovery code'}
+          </button>
+        </div>
+
         {/* Action Button */}
         <div className="flex justify-end">
           <button
@@ -397,6 +393,27 @@ Generate 4 sharp, brave, anti-pretense statements formatted strictly as JSON wit
           </button>
         </div>
       </form>
+
+      {/* One-time recovery code reveal */}
+      {newCode && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md relative">
+            <button
+              onClick={() => setNewCode(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-stone-900 text-white flex items-center justify-center shadow-md hover:bg-black z-10"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <RecoveryCodeReveal
+              code={newCode}
+              context="rotate"
+              doneLabel="Saved it — back to base"
+              onDone={() => setNewCode(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

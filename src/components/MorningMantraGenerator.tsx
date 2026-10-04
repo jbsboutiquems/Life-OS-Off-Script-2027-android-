@@ -1,16 +1,11 @@
 import React, { useState } from 'react';
 import { MORNING_MANTRAS, MorningMantra } from '../data/mantras';
-import { Sparkles, RefreshCw, Copy, Check, ArrowRight, ShieldAlert, Flame, Zap, Share2, Wand2, X } from 'lucide-react';
-import { api } from '../services/api';
-import { GeneratedMantra } from '../types';
+import { Sparkles, RefreshCw, Copy, Check, ArrowRight, ShieldAlert, Flame, Zap, Share2 } from 'lucide-react';
 
 interface MorningMantraGeneratorProps {
   onAdoptAsIntention?: (mantraText: string) => void;
   onShare?: (mantraText: string) => void;
   wordOfTheYear?: string;
-  chaosName?: string;
-  holidayTitle?: string;
-  holidayAdventure?: string;
   className?: string;
 }
 
@@ -18,9 +13,6 @@ export const MorningMantraGenerator: React.FC<MorningMantraGeneratorProps> = ({
   onAdoptAsIntention,
   onShare,
   wordOfTheYear = "FERAL",
-  chaosName = "The Unruly Alchemist",
-  holidayTitle = "Fresh Margin Day",
-  holidayAdventure = "",
   className = ""
 }) => {
   // Initialize with a random sharp/piercing mantra
@@ -29,13 +21,6 @@ export const MorningMantraGenerator: React.FC<MorningMantraGeneratorProps> = ({
   const [copied, setCopied] = useState(false);
   const [adopted, setAdopted] = useState(false);
   const [isSpinning, setIsSpinning] = useState(false);
-
-  // AI Generator Drawer / Modal state
-  const [showAiModal, setShowAiModal] = useState(false);
-  const [aiMood, setAiMood] = useState('Rebellious & Allergic to Busywork');
-  const [aiEdgeLevel, setAiEdgeLevel] = useState<'Sharp' | 'Piercing' | 'Feral'>('Piercing');
-  const [isAiGenerating, setIsAiGenerating] = useState(false);
-  const [generatedMantra, setGeneratedMantra] = useState<GeneratedMantra | null>(null);
 
   // Filtered pool based on edge preference
   const availableMantras = edgeFilter === 'All'
@@ -70,40 +55,21 @@ export const MorningMantraGenerator: React.FC<MorningMantraGeneratorProps> = ({
     }, 200);
   };
 
-  const handleGenerateAiMantra = async () => {
-    setIsAiGenerating(true);
-    try {
-      const result = await api.generateAiMantra({
-        word_of_the_year: wordOfTheYear,
-        chaos_name: chaosName,
-        mood: aiMood,
-        edge_level: aiEdgeLevel,
-        holiday_title: holidayTitle,
-        holiday_adventure: holidayAdventure
-      });
-      setGeneratedMantra(result);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsAiGenerating(false);
-    }
-  };
-
-  const handleCopy = (textToCopy: string = currentMantra.text) => {
-    navigator.clipboard.writeText(textToCopy);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(currentMantra.text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleAdopt = (textToAdopt: string = currentMantra.text) => {
+  const handleAdopt = () => {
     if (onAdoptAsIntention) {
-      onAdoptAsIntention(textToAdopt);
+      onAdoptAsIntention(currentMantra.text);
       setAdopted(true);
       setTimeout(() => setAdopted(false), 2500);
     }
   };
 
-  const getEdgeBadgeStyle = (level: string) => {
+  const getEdgeBadgeStyle = (level: MorningMantra['edgeLevel']) => {
     switch (level) {
       case 'Feral':
         return 'bg-rose-900 text-rose-200 border-rose-700';
@@ -209,23 +175,6 @@ export const MorningMantraGenerator: React.FC<MorningMantraGeneratorProps> = ({
             <Flame className="w-3.5 h-3.5 text-amber-200" />
             <span>Too Soft? Hit Me Harder</span>
           </button>
-
-          {/* AI Custom Spark Button */}
-          <button
-            type="button"
-            id="open-ai-mantra-modal-btn"
-            onClick={() => {
-              setShowAiModal(true);
-              if (!generatedMantra) {
-                handleGenerateAiMantra();
-              }
-            }}
-            className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-mono-code font-bold rounded-lg shadow-xs transition-all flex items-center space-x-1.5"
-            title="Generate a custom AI mantra tailored to your mood and word of the year"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-purple-200" />
-            <span>AI Custom Spark</span>
-          </button>
         </div>
 
         {/* Right side: Adopt, Share, and Copy */}
@@ -233,7 +182,7 @@ export const MorningMantraGenerator: React.FC<MorningMantraGeneratorProps> = ({
           <button
             type="button"
             id="copy-mantra-btn"
-            onClick={() => handleCopy(currentMantra.text)}
+            onClick={handleCopy}
             className="p-1.5 bg-stone-800 hover:bg-stone-700 text-stone-300 rounded-lg border border-stone-700 transition-colors"
             title="Copy mantra text"
           >
@@ -256,7 +205,7 @@ export const MorningMantraGenerator: React.FC<MorningMantraGeneratorProps> = ({
             <button
               type="button"
               id="adopt-morning-intention-btn"
-              onClick={() => handleAdopt(currentMantra.text)}
+              onClick={handleAdopt}
               className={`px-3 py-1.5 rounded-lg text-xs font-mono-code font-bold transition-all flex items-center space-x-1 border ${
                 adopted
                   ? 'bg-emerald-600 text-white border-emerald-500'
@@ -278,128 +227,6 @@ export const MorningMantraGenerator: React.FC<MorningMantraGeneratorProps> = ({
           )}
         </div>
       </div>
-
-      {/* AI Custom Spark Mantra Modal / Drawer */}
-      {showAiModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-stone-900 border-2 border-purple-500/80 rounded-2xl max-w-lg w-full p-6 text-stone-100 shadow-2xl space-y-4 relative animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-stone-800 pb-3">
-              <div className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-ping" />
-                <span className="text-xs font-mono-code uppercase font-bold text-purple-400 tracking-wider">
-                  Gemini AI Morning Spark Generator
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAiModal(false)}
-                className="text-stone-400 hover:text-white p-1 rounded-lg hover:bg-stone-800 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Parameter Selectors */}
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-stone-300 font-mono-code font-bold mb-1">
-                  How are you waking up right now? (Current state / friction):
-                </label>
-                <input
-                  type="text"
-                  value={aiMood}
-                  onChange={(e) => setAiMood(e.target.value)}
-                  placeholder="e.g. Brain fog, dreading meetings, restless, ready to rebel"
-                  className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-stone-200 text-xs focus:outline-purple-500 font-sans"
-                />
-              </div>
-
-              <div>
-                <label className="block text-stone-300 font-mono-code font-bold mb-1">
-                  Desired Edge Tier:
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['Sharp', 'Piercing', 'Feral'] as const).map((tier) => (
-                    <button
-                      key={tier}
-                      type="button"
-                      onClick={() => setAiEdgeLevel(tier)}
-                      className={`py-1.5 px-3 rounded-lg border text-xs font-mono-code font-bold transition-all ${
-                        aiEdgeLevel === tier
-                          ? 'bg-purple-600 text-white border-purple-400 shadow-xs'
-                          : 'bg-stone-950 text-stone-400 border-stone-800 hover:border-stone-700'
-                      }`}
-                    >
-                      {tier === 'Feral' ? '🔥 Feral' : tier === 'Piercing' ? '⚡ Piercing' : '✨ Sharp'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Generated AI Result Card */}
-            {generatedMantra && (
-              <div className="bg-stone-950 border border-purple-900/60 rounded-xl p-4 space-y-3 relative overflow-hidden">
-                <div className="flex items-center justify-between text-[10px] font-mono-code">
-                  <span className="px-2 py-0.5 rounded bg-purple-900/80 text-purple-200 font-bold border border-purple-700 uppercase">
-                    [{generatedMantra.attitude}]
-                  </span>
-                  <span className="text-purple-400 font-bold uppercase">
-                    {generatedMantra.contextTag}
-                  </span>
-                </div>
-
-                <p className="font-serif-display text-base text-stone-100 italic leading-relaxed">
-                  "{generatedMantra.text}"
-                </p>
-
-                {generatedMantra.whyItHits && (
-                  <div className="text-[11px] text-stone-400 border-t border-stone-800 pt-2 font-mono-code">
-                    <span className="text-amber-400 font-bold">Why it hits: </span>
-                    {generatedMantra.whyItHits}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Modal Controls */}
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-stone-800">
-              <button
-                type="button"
-                onClick={handleGenerateAiMantra}
-                disabled={isAiGenerating}
-                className="px-4 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-mono-code font-bold rounded-xl border border-stone-700 transition-all flex items-center space-x-2 disabled:opacity-50"
-              >
-                {isAiGenerating ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple-400" />
-                    <span>Sparking Gemini...</span>
-                  </>
-                ) : (
-                  <>
-                    <Wand2 className="w-3.5 h-3.5 text-purple-300" />
-                    <span>Re-Generate Spark</span>
-                  </>
-                )}
-              </button>
-
-              {generatedMantra && onAdoptAsIntention && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleAdopt(generatedMantra.text);
-                    setShowAiModal(false);
-                  }}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-mono-code font-bold rounded-xl shadow-sm transition-all flex items-center space-x-1.5"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Adopt as Morning Intention</span>
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

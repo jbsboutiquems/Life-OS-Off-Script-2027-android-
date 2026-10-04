@@ -322,8 +322,9 @@ function generateRecoveryCode(): string {
   const groups: string[] = [];
   for (let g = 0; g < 4; g++) {
     let grp = "";
-    const bytes = crypto.randomBytes(4);
-    for (let i = 0; i < 4; i++) grp += RECOVERY_ALPHABET[bytes[i] % RECOVERY_ALPHABET.length];
+    for (let i = 0; i < 4; i++) {
+      grp += RECOVERY_ALPHABET[crypto.randomInt(0, RECOVERY_ALPHABET.length)];
+    }
     groups.push(grp);
   }
   return groups.join("-");
@@ -780,12 +781,68 @@ function consumeEmailToken(token: string, kind: "verify" | "reset"): EmailTokenR
   return rec;
 }
 
+function escapeHtml(str: string): string {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function sanitizeObjectKeys(obj: any): any {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeObjectKeys);
+  const clean: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    clean[key] = sanitizeObjectKeys(val);
+  }
+  return clean;
+}
+
+// Global prototype pollution prevention middleware
+app.use((req, _res, next) => {
+  if (req.body) req.body = sanitizeObjectKeys(req.body);
+  if (req.query) req.query = sanitizeObjectKeys(req.query);
+  if (req.params) req.params = sanitizeObjectKeys(req.params);
+  next();
+});
+
+// General & auth rate-limiting middleware
+const requestCounts = new Map<string, { count: number; resetAt: number }>();
+function rateLimitMiddleware(maxRequests: number, windowMs: number) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip = req.ip || req.socket.remoteAddress || "global";
+    const key = `${req.path}:${ip}`;
+    const now = Date.now();
+    const record = requestCounts.get(key);
+    if (!record || now > record.resetAt) {
+      requestCounts.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+    if (record.count >= maxRequests) {
+      return res.status(429).json({ error: "Too many requests. Please try again later." });
+    }
+    record.count++;
+    return next();
+  };
+}
+
+const authRateLimiter = rateLimitMiddleware(20, 15 * 60 * 1000); // 20 requests per 15 min
+const apiRateLimiter = rateLimitMiddleware(120, 60 * 1000);     // 120 requests per minute
+
+app.use("/api/", apiRateLimiter);
+app.use("/api/auth/", authRateLimiter);
+
 function authPage(title: string, body: string, ok = false): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} — Off*Script</title></head>
+  const safeTitle = escapeHtml(title);
+  const safeBody = escapeHtml(body);
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeTitle} — Off*Script</title></head>
 <body style="font-family:Georgia,serif;background:#faf5eb;color:#1c1917;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px">
 <div style="max-width:480px;background:#fffdfa;border:2px solid #1c1917;border-radius:16px;padding:32px;text-align:center">
 <div style="font-size:32px">${ok ? "✅" : "⚠️"}</div>
-<h1 style="font-size:20px">${title}</h1><p style="font-size:14px;line-height:1.6">${body}</p>
+<h1 style="font-size:20px">${safeTitle}</h1><p style="font-size:14px;line-height:1.6">${safeBody}</p>
 <p><a href="${baseUrl()}/" style="color:#e11d48;font-weight:bold">Back to the app →</a></p>
 </div></body></html>`;
 }
@@ -978,8 +1035,8 @@ app.get("/api/health", (_req, res) => {
 
 // Strip protected fields so PATCH bodies can't overwrite record identity.
 function sanitizePatch(body: any): Record<string, any> {
-  const { id, created_at, awarded_at, ...rest } = body || {};
-  return rest;
+  const { id, created_at, awarded_at, __proto__, constructor, prototype, ...rest } = body || {};
+  return sanitizeObjectKeys(rest);
 }
 
 // ================= API ROUTES (all require auth unless noted) =================
@@ -1996,8 +2053,10 @@ app.post("/api/studio/video/download", requireAuth, studioJson, async (req, res)
     });
     const json = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(json?.error?.message || `Status check failed (${r.status})`);
-    const uri = json?.response?.generatedVideos?.[0]?.video?.uri;
-    if (!uri) return res.status(404).json({ error: "Video not ready yet — still rendering.", code: "VIDEO_NOT_READY" });
+    const uri = String(json?.response?.generatedVideos?.[0]?.video?.uri || "");
+    if (!uri || (!uri.startsWith("https://generativelanguage.googleapis.com/") && !uri.startsWith("https://lh3.googleusercontent.com/"))) {
+      return res.status(404).json({ error: "Video not ready yet — still rendering.", code: "VIDEO_NOT_READY" });
+    }
     const videoRes = await fetch(uri, { headers: { "x-goog-api-key": key } });
     if (!videoRes.ok) throw new Error(`Video fetch failed (${videoRes.status})`);
     res.setHeader("Content-Type", "video/mp4");

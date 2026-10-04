@@ -5,7 +5,6 @@ import { aiConsentHeaders } from './aiConsent';
 // ================= Auth + session =================
 
 const TOKEN_KEY = 'lifeos:auth:token';
-let inMemoryToken: string | null = null;
 let cachedUserId: string | null = null;
 let authFailureHandler: (() => void) | null = null;
 
@@ -17,17 +16,33 @@ export class AuthError extends Error {
   }
 }
 
+let inMemoryToken: string | null = null;
+
 function getToken(): string | null {
-  return inMemoryToken;
+  if (inMemoryToken) return inMemoryToken;
+  try {
+    return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 function setToken(token: string) {
   inMemoryToken = token;
+  try {
+    sessionStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // ignore
+  }
   cachedUserId = null;
 }
 
 function clearToken() {
-  inMemoryToken = null;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore
+  }
   cachedUserId = null;
 }
 
@@ -37,70 +52,18 @@ function ns(key: string): string {
   return `lifeos:${cachedUserId || 'anon'}:${key}`;
 }
 
-const LS_ENC_PREFIX = 'enc:v1:';
-const LS_ENC_KEY = 'lifeos-local-cache-key-v1';
-
-function b64Encode(bytes: Uint8Array): string {
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
-
-function b64Decode(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-async function getLsCryptoKey(): Promise<CryptoKey> {
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.digest('SHA-256', enc.encode(LS_ENC_KEY));
-  return crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-}
-
-async function encryptForStorage(plainText: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await getLsCryptoKey();
-  const enc = new TextEncoder();
-  const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plainText));
-  return `${LS_ENC_PREFIX}${b64Encode(iv)}:${b64Encode(new Uint8Array(cipher))}`;
-}
-
-async function decryptFromStorage(payload: string): Promise<string> {
-  const [ivB64, dataB64] = payload.substring(LS_ENC_PREFIX.length).split(':');
-  if (!ivB64 || !dataB64) throw new Error('invalid encrypted payload');
-  const key = await getLsCryptoKey();
-  const iv = b64Decode(ivB64);
-  const data = b64Decode(dataB64);
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
-  return new TextDecoder().decode(plain);
-}
-
-async function lsGet<T>(key: string): Promise<T | null> {
+function lsGet<T>(key: string): T | null {
   try {
-    const storageKey = ns(key);
-    const v = localStorage.getItem(storageKey);
-    if (!v) return null;
-    if (v.startsWith(LS_ENC_PREFIX)) {
-      const json = await decryptFromStorage(v);
-      return JSON.parse(json) as T;
-    }
-    // Backward compatibility for legacy plaintext entries; migrate in place.
-    const parsed = JSON.parse(v) as T;
-    const enc = await encryptForStorage(v);
-    localStorage.setItem(storageKey, enc);
-    return parsed;
+    const v = localStorage.getItem(ns(key));
+    return v ? (JSON.parse(v) as T) : null;
   } catch {
     return null;
   }
 }
 
-async function lsSet(key: string, val: unknown) {
+function lsSet(key: string, val: unknown) {
   try {
-    const json = JSON.stringify(val);
-    const enc = await encryptForStorage(json);
-    localStorage.setItem(ns(key), enc);
+    localStorage.setItem(ns(key), JSON.stringify(val));
   } catch {
     // ignore
   }
@@ -491,7 +454,7 @@ export const api = {
       if (e instanceof AuthError) throw e;
       console.warn('API unavailable, reading local user', e);
     }
-    return (await lsGet<UserProfile>('user')) || blankProfile(cachedUserId || 'local');
+    return lsGet<UserProfile>('user') || blankProfile(cachedUserId || 'local');
   },
 
   async updateUser(user: Partial<UserProfile>): Promise<UserProfile> {
@@ -502,7 +465,7 @@ export const api = {
       });
       if (res.ok) {
         const updated = await res.json();
-        await lsSet('user', updated);
+        lsSet('user', updated);
         return updated;
       }
     } catch (e) {
@@ -511,7 +474,7 @@ export const api = {
     }
     const current = await this.getUser().catch(() => blankProfile(cachedUserId || 'local'));
     const updated = { ...current, ...user, updated_at: new Date().toISOString() };
-    await lsSet('user', updated);
+    lsSet('user', updated);
     return updated;
   },
 
@@ -524,7 +487,7 @@ export const api = {
       if (e instanceof AuthError) throw e;
       console.warn('API error, reading local goals', e);
     }
-    return (await lsGet<Goal[]>('goals')) || [];
+    return lsGet<Goal[]>('goals') || [];
   },
 
   async createGoal(goalData: Omit<Goal, 'id' | 'created_at' | 'is_completed'>): Promise<Goal> {

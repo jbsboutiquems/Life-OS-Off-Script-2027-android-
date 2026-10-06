@@ -47,7 +47,7 @@ export const MORNING_MANTRAS: MorningMantra[] = [
     text: "The plan was a polite hypothesis, not a blood oath. Pivot without apologizing.",
     attitude: "Fluid Navigation",
     edgeLevel: "Sharp",
-    contextTag: "Off Script"
+    contextTag: "Off*Script"
   },
   {
     id: 'm7',

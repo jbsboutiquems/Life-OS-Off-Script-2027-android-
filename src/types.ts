@@ -1,5 +1,5 @@
 /**
- * Core Data Types for 2027 Life OS: Off Script (Chaos Year Edition)
+ * Core Data Types for 2027 Life OS: Off*Script (Chaos Year Edition)
  * & The Mei-Style Personality Diagnostic Engine
  */
 
@@ -13,6 +13,29 @@ export interface UserProfile {
   what_ready_to_admit: string;
   relationship_with_chaos: string;
   permission_granted: string;
+  /** Birthday in YYYY-MM-DD form. Powers the Cosmic Corner horoscope + natal chart. */
+  birthday?: string;
+  /** Optional birth time in HH:MM form. Needed for the (for-fun) rising sign. */
+  birth_time?: string;
+  /** Optional free-text birthplace. Shown on the natal chart wheel. */
+  birthplace?: string;
+  /** Daily horoscope voice: 'nice' (warm) or 'rude' (spicy tough-love). Defaults to 'nice'. */
+  horoscope_tone?: 'nice' | 'rude';
+  /** Email from email/OAuth signup. Present on the /api/auth/me response. */
+  email?: string | null;
+  emailVerified?: boolean;
+  /** First-run onboarding tour completed (or dismissed forever). */
+  onboarding_seen?: boolean;
+  /** Reminder: daily flight-log nudge. */
+  reminder_daily_enabled?: boolean;
+  /** Reminder: daily nudge time, "HH:MM" 24h. */
+  reminder_daily_time?: string;
+  /** Reminder: weekly debrief nudge. */
+  reminder_weekly_enabled?: boolean;
+  /** Reminder: weekly nudge day, 0 = Sunday … 6 = Saturday. */
+  reminder_weekly_day?: number;
+  /** Reminder: weekly nudge time, "HH:MM" 24h. */
+  reminder_weekly_time?: string;
   created_at: string;
   core_values: {
     autonomy: number;
@@ -24,6 +47,32 @@ export interface UserProfile {
     rest: number;
     discipline: number;
   };
+}
+
+export interface ContentPack {
+  pack_id: string;
+  title: string;
+  assets_url: string;
+}
+
+export interface UserEntitlement {
+  user_id: string;
+  pack_id: string;
+  unlocked_at: string;
+}
+
+export interface TokenRedemptionResult {
+  success: boolean;
+  packId?: string;
+  title?: string;
+  error?: string;
+}
+
+export interface AuthResult {
+  token: string;
+  user: UserProfile;
+  /** Plaintext recovery code — returned exactly once at registration and after each rotation. */
+  recoveryCode?: string;
 }
 
 export interface Goal {
@@ -46,12 +95,6 @@ export interface AntiGoal {
   created_at: string;
 }
 
-export interface GoalDailyContribution {
-  goal_id: string;
-  completed: boolean;
-  note?: string;
-}
-
 export interface DailyEntry {
   id: string;
   entry_date: string; // YYYY-MM-DD
@@ -66,9 +109,6 @@ export interface DailyEntry {
   chaos_score: number; // 1-10
   holiday_title?: string;
   holiday_adventure?: string;
-  goal_progress?: GoalDailyContribution[]; // Daily contributions to Big 6 goals
-  habit_streak?: number; // Habit streak count for consecutive daily Big 6 task completion
-  big6_completed?: boolean; // Whether all Big 6 daily tasks are completed for this date
   updated_at: string;
 }
 
@@ -148,71 +188,46 @@ export interface ChaosHoliday {
   day: number;
   title: string;
   tagline: string;
+  /** Plain-language explainer: what this holiday is, what it means, and what it asks of you. */
+  meaning: string;
   whoIsThisSoul: string[];
   adventures: string[];
   anchorQuestion: string;
 }
 
-// ================= AI INTERACTION TYPES =================
+export type ChaosPointAction =
+  | 'daily_log'
+  | 'micro_dare'
+  | 'weekly_debrief'
+  | 'antigoal_quashed'
+  | 'goal_completed'
+  | 'diagnostic_run'
+  | 'share_fired';
 
-export interface GeneratedMantra {
-  text: string;
-  edgeLevel: 'Sharp' | 'Piercing' | 'Feral';
-  attitude: string;
-  contextTag: string;
-  whyItHits: string;
+export interface ChaosPointEntry {
+  id: string;
+  action: ChaosPointAction;
+  points: number;
+  /** Dedupe key, e.g. "daily_log:2027-03-14" or "antigoal_quashed:antigoal_123". */
+  ref: string;
+  label: string;
+  awarded_at: string;
 }
 
-export interface RefinedPrioritiesResult {
-  refined_priorities: [string, string, string];
-  reality_check_note: string;
-  de_optimization_callout: string;
-}
+export const CHAOS_POINT_VALUES: Record<ChaosPointAction, number> = {
+  daily_log: 10,
+  micro_dare: 15,
+  weekly_debrief: 25,
+  antigoal_quashed: 30,
+  goal_completed: 50,
+  diagnostic_run: 5,
+  share_fired: 5,
+};
 
-export interface MeiChatMessage {
-  role: 'user' | 'mei';
-  content: string;
-  timestamp?: string;
-}
-
-export interface GoalStressTestResult {
-  verdict: 'Pass' | 'Performative Trap' | 'Needs Sharpening';
-  analysis: string;
-  traps_detected: string[];
-  suggested_refinement: {
-    title: string;
-    why_statement: string;
-    success_metric: string;
-    first_step: string;
-  };
-}
-
-export interface SuggestedAntiGoal {
-  title: string;
-  category: 'Boundary' | 'Time Theft' | 'Energy Drain' | 'People Pleasing' | 'Perfectionism';
-  why_stopped: string;
-}
-
-export interface ForensicDebriefResult {
-  core_contradiction: string;
-  heroic_refusal: string;
-  numbness_alert: string;
-  strategic_micro_dare: string;
-  forensic_recap: string;
-}
-
-export interface FinancialAuditResult {
-  no_shame_audit: string;
-  emotional_spending_pattern: string;
-  sovereignty_rating: string;
-  permission_slip: string;
-}
-
-export interface CompanionCheckInResult {
-  trigger_type: 'field_notes_followup' | 'inactivity_checkin';
-  message: string;
-  follow_up_question: string;
-  witty_quip: string;
-  suggested_replies: string[];
-  hours_inactive?: number;
+export interface FlightCrewContact {
+  id: string;
+  name: string;
+  role: string; // e.g. "Co-conspirator", "Emergency contact", "Accountability gremlin"
+  notes: string;
+  created_at: string;
 }

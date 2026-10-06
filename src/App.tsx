@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { UserProfile, DailyEntry, PersonalitySnapshot, Goal, AntiGoal, WeeklyFlightDebrief, MonthlyMoneyMap } from './types';
-import { api } from './services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { UserProfile, DailyEntry, PersonalitySnapshot, Goal, AntiGoal, WeeklyFlightDebrief, MonthlyMoneyMap, ChaosPointEntry, FlightCrewContact } from './types';
+import { api, AuthError } from './services/api';
+import { initTheme, getTheme, toggleTheme } from './theme';
 import { Header } from './components/Header';
+import { AuthScreen } from './components/AuthScreen';
+import { OAuthUsernameStep } from './components/OAuthUsernameStep';
+import { DashboardView, type DashboardTab } from './components/DashboardView';
+import { CosmicCornerView } from './components/CosmicCornerView';
+import { HolidaysView } from './components/HolidaysView';
+import { TourGuideView } from './components/TourGuideView';
 import { DailyOSView } from './components/DailyOSView';
 import { MeiDiagnosticCard } from './components/MeiDiagnosticCard';
 import { Big6GoalsTracker } from './components/Big6GoalsTracker';
@@ -9,145 +16,106 @@ import { IdentityProfileView } from './components/IdentityProfileView';
 import { WeeklyDebriefView } from './components/WeeklyDebriefView';
 import { MonthlyMoneyMapView } from './components/MonthlyMoneyMapView';
 import { ThemesGalleryView } from './components/ThemesGalleryView';
-import { FrontMatterView } from './components/FrontMatterView';
-import { PackageAppModal } from './components/PackageAppModal';
 import { StickersSheetModal } from './components/StickersSheetModal';
+import { SocialShareModal, type ShareContextType } from './components/SocialShareModal';
+import { UnlockScreen } from './components/UnlockScreen';
 import { CoverArtView } from './components/CoverArtView';
 import { ChaosTrendline } from './components/ChaosTrendline';
-import { SocialShareModal, ShareContextType } from './components/SocialShareModal';
-import { AndroidInstallBanner } from './components/AndroidInstallBanner';
-import { AndroidBottomNav } from './components/AndroidBottomNav';
+import { ChaosPointsView } from './components/ChaosPointsView';
+import { FlightCrewView } from './components/FlightCrewView';
+import { DriveBackupView } from './components/DriveBackupView';
+import { OnboardingTour } from './components/OnboardingTour';
+import { RemindersView } from './components/RemindersView';
+import { SearchView } from './components/SearchView';
+import { ChaosWallView } from './components/ChaosWallView';
+import { InboxView } from './components/InboxView';
+import { FrontMatterView } from './components/frontmatter';
+import { AiStudioView } from './components/studio/AiStudioView';
+import { InstallBanner } from './components/InstallBanner';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { exportDailyLogPdf } from './services/pdf';
-import { AIStudioHubView } from './components/AIStudioHubView';
-import {
-  signInWithGoogle,
-  logOut,
-  subscribeToAuth,
-  validateFirestoreConnection,
-  syncUserProfileToFirestore,
-  fetchUserProfileFromFirestore,
-  syncDailyEntryToFirestore,
-  fetchDailyEntryFromFirestore
-} from './lib/firebase';
-import { User as FirebaseUser } from 'firebase/auth';
-import {
-  Compass,
-  Sparkles,
-  Flame,
-  BookOpen,
-  DollarSign,
-  Award,
-  ShieldAlert,
-  Image as ImageIcon,
-  Smile,
-  CheckCircle,
-  Activity,
-  Layers,
-  Download,
-  Radio,
-  Sun,
-  Moon
-} from 'lucide-react';
+import { AiConsentGate } from './components/AiConsentGate';
+import { AndroidPermissionGate } from './components/AndroidPermissionGate';
+import { PackageAppModal } from './components/PackageAppModal';
+import { computeStreak } from './lib/streaks';
+import { ChevronLeft, Activity, Mail } from 'lucide-react';
+
+initTheme();
+
+type ActiveTab = 'dashboard' | DashboardTab;
+
+function blankDailyEntry(dateStr: string): DailyEntry {
+  return {
+    id: `entry_${dateStr}`,
+    entry_date: dateStr,
+    morning_intention: '',
+    today_i_am: '',
+    anchor_question_answer: '',
+    priorities: ['', '', ''],
+    midday_checkin: '',
+    micro_dare_completed: false,
+    micro_dare_notes: '',
+    evening_notes: '',
+    chaos_score: 5,
+    updated_at: new Date().toISOString()
+  };
+}
 
 export default function App() {
+  const [authLoading, setAuthLoading] = useState(true);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [oauthPending, setOauthPending] = useState<{ key: string; provider: 'google' | 'facebook' } | null>(null);
+  const [darkMode, setDarkMode] = useState(() => getTheme() === 'midnight');
   const [currentDate, setCurrentDate] = useState<string>(() => {
     return new Date().toISOString().split('T')[0];
   });
-  const [activeTab, setActiveTab] = useState<'cover' | 'frontmatter' | 'daily' | 'trendline' | 'diagnostic' | 'aistudio' | 'goals' | 'identity' | 'weekly' | 'money' | 'themes'>('daily');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [stickersModalOpen, setStickersModalOpen] = useState(false);
-  const [packageModalOpen, setPackageModalOpen] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [packageModalOpen, setPackageModalOpen] = useState(false);
   const [shareContext, setShareContext] = useState<ShareContextType>('daily');
   const [allEntries, setAllEntries] = useState<DailyEntry[]>([]);
-  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
-
-  // Theme State: 'cream' (Default Cream Canvas) vs 'midnight' (Midnight Focus Dark Mode)
-  const [currentTheme, setCurrentTheme] = useState<'cream' | 'midnight'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('lifeos_theme');
-      if (saved === 'midnight') return 'midnight';
-    }
-    return 'cream';
-  });
-
-  useEffect(() => {
-    if (currentTheme === 'midnight') {
-      document.documentElement.classList.add('theme-midnight', 'dark');
-      document.body.classList.add('theme-midnight', 'dark');
-      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0b0f19');
-    } else {
-      document.documentElement.classList.remove('theme-midnight', 'dark');
-      document.body.classList.remove('theme-midnight', 'dark');
-      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#0f172a');
-    }
-    localStorage.setItem('lifeos_theme', currentTheme);
-  }, [currentTheme]);
-
-  const handleToggleTheme = () => {
-    setCurrentTheme(prev => {
-      const next = prev === 'cream' ? 'midnight' : 'cream';
-      showToast(
-        next === 'midnight'
-          ? '✦ Switched to Midnight Focus (Late-Night High Contrast Dark Mode)'
-          : '☀ Switched to Cream Canvas (Default Warm Paper Mode)'
-      );
-      return next;
-    });
-  };
 
   // Core data states
-  const [user, setUser] = useState<UserProfile>({
-    id: "user_chaos_01",
-    chaos_name: "The Unruly Alchemist",
-    word_of_the_year: "FERAL",
-    slogan: "Boredom=Death",
-    chaos_mantra: "An intention is not a promise. It is a direction. I am allowed to update the map.",
-    what_done_pretending: "Pretending that I have my life in neat boxes and that 5-year plans make any sense.",
-    what_ready_to_admit: "I thrive when there is room for surprise and friction, not rigid perfectionism.",
-    relationship_with_chaos: "Not disorder, but raw material for becoming.",
-    permission_granted: "You have permission to change your mind mid-sentence, skip a day without guilt, and burn the performance.",
-    created_at: new Date().toISOString(),
-    core_values: {
-      autonomy: 9,
-      honesty: 10,
-      creativity: 8,
-      presence: 7,
-      resilience: 8,
-      playfulness: 9,
-      rest: 6,
-      discipline: 7
-    }
-  });
-
-  const [dailyEntry, setDailyEntry] = useState<DailyEntry>({
-    id: `entry_${currentDate}`,
-    entry_date: currentDate,
-    morning_intention: "Today I am choosing steadiness over optimization.",
-    today_i_am: "An unhurried architect of my own space.",
-    anchor_question_answer: "I am paying attention to what I resent doing, because resentment is a boundary alarm.",
-    priorities: [
-      "Ship the core architecture without second-guessing",
-      "One hour uninterrupted in the studio",
-      "Walk outside with zero audio inputs"
-    ],
-    midday_checkin: "Energy is good. Caught myself wanting to check email every 4 minutes. Stepped back.",
-    micro_dare_completed: false,
-    micro_dare_notes: "",
-    evening_notes: "Felt the urge to make today look cleaner than it actually was. I kept saying I was 'fine' during the check-in, but I'm deeply irritated by performative busywork. I want to build things that matter, not maintain calendars for people whose approval I don't even respect. Big paradox: I crave order, but the minute things are too tidy, I deliberately shake the snowglobe.",
-    chaos_score: 6,
-    updated_at: new Date().toISOString()
-  });
-
+  const [dailyEntry, setDailyEntry] = useState<DailyEntry>(() => blankDailyEntry(new Date().toISOString().split('T')[0]));
   const [latestSnapshot, setLatestSnapshot] = useState<PersonalitySnapshot | null>(null);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [antiGoals, setAntiGoals] = useState<AntiGoal[]>([]);
+  const [points, setPoints] = useState<ChaosPointEntry[]>([]);
+  const [flightCrew, setFlightCrew] = useState<FlightCrewContact[]>([]);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [debriefs, setDebriefs] = useState<WeeklyFlightDebrief[]>([]);
+  const [moneyMaps, setMoneyMaps] = useState<MonthlyMoneyMap[]>([]);
+  const [dueCount, setDueCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [tourDismissed, setTourDismissed] = useState(false);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Timer-safe toast: a new message replaces the current one and restarts the
+  // clock, so an older timer can never clear a newer toast.
   const showToast = (msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    toastTimer.current = setTimeout(() => {
+      setToastMessage(null);
+      toastTimer.current = null;
+    }, 3000);
+  };
+
+  const pointsTotal = points.reduce((s, p) => s + p.points, 0);
+
+  // Award chaos points and refresh the ledger. Dedupe is enforced server-side by ref.
+  const awardPoints = async (action: 'daily_log' | 'micro_dare' | 'weekly_debrief' | 'antigoal_quashed' | 'goal_completed' | 'diagnostic_run' | 'share_fired', ref: string, label: string) => {
+    try {
+      const result = await api.awardPoints(action, ref, label);
+      if (!result.duplicate) {
+        const list = await api.getPoints();
+        setPoints(list);
+        showToast(`+${result.entry.points} Chaos Points — ${label}`);
+      }
+    } catch (e) {
+      if (!(e instanceof AuthError)) console.warn('Points award failed', e);
+    }
   };
 
   const handleOpenShare = (context: ShareContextType = 'daily') => {
@@ -155,76 +123,167 @@ export default function App() {
     setShareModalOpen(true);
   };
 
-  const handleExportPdf = () => {
-    exportDailyLogPdf({ user, entry: dailyEntry, snapshot: latestSnapshot, goals, antiGoals });
-    showToast('PDF downloaded. Paper remembers what the cloud forgets.');
+  const handleLogout = async (silent = false) => {
+    try {
+      await api.logout();
+    } catch {
+      // clearing the local token is what matters
+    }
+    // Clear every scrap of account data so the next login starts clean.
+    setUser(null);
+    setGoals([]);
+    setAntiGoals([]);
+    setPoints([]);
+    setFlightCrew([]);
+    setAllEntries([]);
+    setDebriefs([]);
+    setMoneyMaps([]);
+    setDueCount(0);
+    setUnreadCount(0);
+    setTourDismissed(false);
+    setLatestSnapshot(null);
+    setDailyEntry(blankDailyEntry(currentDate));
+    setActiveTab('dashboard');
+    if (!silent) showToast('Logged out. Chaos contained.');
   };
 
-  // Initial load from backend API
-  const loadData = async () => {
+  // Full data load after authentication
+  const loadAll = async () => {
     try {
-      const [u, e, snaps, g, ags, allE] = await Promise.all([
-        api.getUser(),
+      const [e, snaps, g, ags, allE, pts, crew, debs, mms] = await Promise.all([
         api.getDailyEntry(currentDate),
         api.getSnapshots(),
         api.getGoals(),
         api.getAntiGoals(),
-        api.getAllDailyEntries()
+        api.getAllDailyEntries(),
+        api.getPoints(),
+        api.getFlightCrew(),
+        api.getAllDebriefs(),
+        api.getAllMoneyMaps()
       ]);
 
-      if (u) setUser(u);
       if (e) setDailyEntry(e);
       if (snaps && snaps.length > 0) setLatestSnapshot(snaps[0]);
       if (g) setGoals(g);
       if (ags) setAntiGoals(ags);
       if (allE) setAllEntries(allE);
+      if (pts) setPoints(pts);
+      if (crew) setFlightCrew(crew);
+      if (debs) setDebriefs(debs);
+      if (mms) setMoneyMaps(mms);
     } catch (err) {
-      console.warn("Backend API call issue, operating gracefully with local state", err);
+      if (!(err instanceof AuthError)) console.warn('Data load issue', err);
+    }
+    refreshBadgeCounts();
+  };
+
+  // Bell badges: due reminders + inbox unread. Refreshed on login and periodically.
+  const refreshBadgeCounts = async () => {
+    try {
+      const [rem, threads] = await Promise.all([
+        api.getDueReminders().catch(() => null),
+        api.getInboxThreads().catch(() => []),
+      ]);
+      if (rem) setDueCount((rem.due || []).length);
+      setUnreadCount((threads || []).reduce((n: number, t: any) => n + (t.unread || 0), 0));
+    } catch {
+      // badges are decorative; silence is fine
     }
   };
 
+  // Auth bootstrap: restore session if a token exists, then load data.
+  // Also handles OAuth callbacks: #oauth=<token> (signed in) and
+  // #oauth_pending=<key>&provider=<p> (must choose a username first).
   useEffect(() => {
-    loadData();
-  }, [currentDate]);
-
-  // Firebase Auth State & Firestore Sync Listener
-  useEffect(() => {
-    validateFirestoreConnection();
-    const unsubscribe = subscribeToAuth(async (fbUser) => {
-      setCurrentUser(fbUser);
-      if (fbUser) {
-        showToast(`Connected to Firebase: ${fbUser.displayName || fbUser.email}`);
-        const cloudUser = await fetchUserProfileFromFirestore(fbUser.uid);
-        if (cloudUser) {
-          setUser(cloudUser);
-        } else {
-          syncUserProfileToFirestore(fbUser.uid, user);
+    let isActive = true;
+    api.onAuthFailure(() => {
+      if (isActive) handleLogout(true);
+    });
+    (async () => {
+      const hash = window.location.hash || '';
+      const oauthToken = /#oauth=([a-f0-9]+)/.exec(hash)?.[1];
+      const pendingMatch = /#oauth_pending=([a-f0-9]+)&provider=(google|facebook)/.exec(hash);
+      if (oauthToken) {
+        api.setToken(oauthToken);
+        window.history.replaceState(null, '', window.location.pathname);
+      } else if (pendingMatch) {
+        window.history.replaceState(null, '', window.location.pathname);
+        if (isActive) {
+          setOauthPending({ key: pendingMatch[1], provider: pendingMatch[2] as 'google' | 'facebook' });
+          setAuthLoading(false);
+        }
+        return;
+      }
+      if (api.getToken()) {
+        try {
+          const me = await api.getMe();
+          if (!isActive) return;
+          setUser(me);
+          await loadAll();
+        } catch (e) {
+          if (!(e instanceof AuthError)) console.warn('Session restore failed', e);
         }
       }
-    });
-    return () => unsubscribe();
+      if (isActive) setAuthLoading(false);
+    })();
+    return () => {
+      isActive = false;
+      api.onAuthFailure(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSignInGoogle = async () => {
-    try {
-      const fbUser = await signInWithGoogle();
-      if (fbUser) {
-        showToast(`Signed in with Google! Synced with Firestore.`);
-      }
-    } catch (err: any) {
-      showToast(`Google Sign-In error: ${err.message}`);
+  // Poll badge counts quietly while signed in (no WebSockets in this prototype).
+  useEffect(() => {
+    if (!user) return;
+    const id = setInterval(refreshBadgeCounts, 60000);
+    const onFocus = () => refreshBadgeCounts();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('focus', onFocus);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const handleFinishOnboarding = async (dontShowAgain: boolean) => {
+    setTourDismissed(true);
+    if (dontShowAgain && user) {
+      await handleSaveProfile({ onboarding_seen: true });
     }
   };
 
-  const handleSignOut = async () => {
-    try {
-      await logOut();
-      setCurrentUser(null);
-      showToast("Signed out of Google account.");
-    } catch (err: any) {
-      showToast(`Sign out error: ${err.message}`);
-    }
+  const showTour = !!user && !user.onboarding_seen && !tourDismissed;
+
+  // Jump to a search result's door.
+  const handleSearchNavigate = (door: string, target?: string) => {
+    if (door === 'flight-log') {
+      if (target) setCurrentDate(target);
+      setActiveTab('daily');
+    } else if (door === 'goals') setActiveTab('goals');
+    else if (door === 'anti-goals') setActiveTab('antigoals');
+    else if (door === 'debrief') setActiveTab('weekly');
+    else if (door === 'money') setActiveTab('money');
+    else if (door === 'crew') setActiveTab('crew');
+    else if (door === 'holidays') setActiveTab('holidays');
   };
+
+  const streak = computeStreak(allEntries.map((e) => e.entry_date), new Date().toISOString().split('T')[0]);
+
+  // Reload the day's entry when the date changes (authenticated only).
+  useEffect(() => {
+    if (!user) return;
+    let isActive = true;
+    api.getDailyEntry(currentDate)
+      .then((e) => {
+        if (isActive) setDailyEntry(e || blankDailyEntry(currentDate));
+      })
+      .catch((err) => {
+        if (!(err instanceof AuthError)) console.warn('Entry reload failed', err);
+      });
+    return () => { isActive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDate]);
 
   // Handle Saving Daily Entry
   const handleSaveDailyEntry = async (updates: Partial<DailyEntry>) => {
@@ -249,17 +308,19 @@ export default function App() {
 
     try {
       await api.saveDailyEntry(updatedEntry);
-      if (currentUser) {
-        syncDailyEntryToFirestore(currentUser.uid, updatedEntry);
-      }
       showToast("Daily Flight Log saved.");
     } catch (err) {
-      showToast("Saved locally.");
+      if (!(err instanceof AuthError)) showToast("Saved locally.");
+    }
+    awardPoints('daily_log', `daily_log:${currentDate}`, `Daily Flight Log · ${currentDate}`);
+    if (updatedEntry.micro_dare_completed) {
+      awardPoints('micro_dare', `micro_dare:${currentDate}`, `Micro-Dare · ${currentDate}`);
     }
   };
 
   // Handle Running Mei Diagnostic
   const handleRunDiagnostic = async () => {
+    if (!user) return;
     setIsDiagnosing(true);
     try {
       const snapshot = await api.runMeiDiagnostic({
@@ -274,9 +335,12 @@ export default function App() {
       setLatestSnapshot(snapshot);
       setActiveTab('diagnostic');
       showToast("Mei Diagnostic complete! Honest mirror updated.");
+      awardPoints('diagnostic_run', `diagnostic_run:${currentDate}`, `Mei Diagnostic · ${currentDate}`);
     } catch (err) {
-      console.error("Diagnosis error:", err);
-      showToast("Failed to run diagnosis. Check server connection.");
+      if (!(err instanceof AuthError)) {
+        console.error("Diagnosis error:", err);
+        showToast("Failed to run diagnosis. Check server connection.");
+      }
     } finally {
       setIsDiagnosing(false);
     }
@@ -289,14 +353,20 @@ export default function App() {
       setGoals([...goals, created]);
       showToast("Goal committed to slot.");
     } catch (err) {
-      const fallbackGoal: Goal = {
-        ...newGoal,
-        id: `goal_${Date.now()}`,
-        is_completed: false,
-        created_at: new Date().toISOString()
-      };
-      setGoals([...goals, fallbackGoal]);
-      showToast("Goal committed locally.");
+      // Local fallback is only for an unreachable server. Validation errors
+      // (like the six-goal maximum) must surface, not create an extra goal.
+      if (err instanceof TypeError) {
+        const fallbackGoal: Goal = {
+          ...newGoal,
+          id: `goal_${Date.now()}`,
+          is_completed: false,
+          created_at: new Date().toISOString()
+        };
+        setGoals([...goals, fallbackGoal]);
+        showToast("Goal committed locally.");
+      } else if (!(err instanceof AuthError)) {
+        showToast(err instanceof Error ? err.message : "Could not add goal.");
+      }
     }
   };
 
@@ -304,16 +374,20 @@ export default function App() {
     try {
       await api.updateGoal(id, { is_completed: isCompleted });
     } catch (e) {
-      console.warn(e);
+      if (!(e instanceof AuthError)) console.warn(e);
     }
     setGoals(goals.map(g => g.id === id ? { ...g, is_completed: isCompleted } : g));
+    if (isCompleted) {
+      const goal = goals.find(g => g.id === id);
+      awardPoints('goal_completed', `goal_completed:${id}`, `Goal completed: ${goal?.title || id}`);
+    }
   };
 
   const handleDeleteGoal = async (id: string) => {
     try {
       await api.deleteGoal(id);
     } catch (e) {
-      console.warn(e);
+      if (!(e instanceof AuthError)) console.warn(e);
     }
     setGoals(goals.filter(g => g.id !== id));
     showToast("Goal removed from slot.");
@@ -326,6 +400,7 @@ export default function App() {
       setAntiGoals(prev => [...prev, created]);
       showToast("Anti-Goal commitment logged.");
     } catch (err) {
+      if (err instanceof AuthError) return;
       const fallback: AntiGoal = {
         ...newAntiGoal,
         id: `antigoal_${Date.now()}`,
@@ -341,11 +416,13 @@ export default function App() {
     try {
       await api.updateAntiGoal(id, { is_completed: isCompleted });
     } catch (e) {
-      console.warn(e);
+      if (!(e instanceof AuthError)) console.warn(e);
     }
     setAntiGoals(prev => prev.map(ag => ag.id === id ? { ...ag, is_completed: isCompleted } : ag));
     if (isCompleted) {
       showToast("Habit eliminated! Strikethrough protocol active.");
+      const ag = antiGoals.find(a => a.id === id);
+      awardPoints('antigoal_quashed', `antigoal_quashed:${id}`, `Anti-Goal quashed: ${ag?.title || id}`);
     } else {
       showToast("Anti-Goal reopened as active commitment.");
     }
@@ -355,7 +432,7 @@ export default function App() {
     try {
       await api.deleteAntiGoal(id);
     } catch (e) {
-      console.warn(e);
+      if (!(e instanceof AuthError)) console.warn(e);
     }
     setAntiGoals(prev => prev.filter(ag => ag.id !== id));
     showToast("Anti-Goal removed.");
@@ -363,242 +440,174 @@ export default function App() {
 
   // Profile Save Handler
   const handleSaveProfile = async (profileUpdates: Partial<UserProfile>) => {
+    if (!user) return;
     const updated = { ...user, ...profileUpdates };
     setUser(updated);
     try {
       await api.updateUser(updated);
       showToast("Identity Base updated.");
     } catch (err) {
-      showToast("Identity Base saved locally.");
+      if (!(err instanceof AuthError)) showToast("Identity Base saved locally.");
     }
   };
 
-  const navigationItems = [
-    { id: 'cover', label: 'Cover Art & Jacket', icon: ImageIcon, badge: 'Art' },
-    { id: 'frontmatter', label: 'Front Matter & Codex', icon: Layers, badge: 'Codex' },
-    { id: 'daily', label: 'Daily OS (Launch · Orbit · Landing)', icon: Compass, badge: 'Core' },
-    { id: 'trendline', label: 'Chaos Trendline (30-Day)', icon: Activity, badge: 'Analysis' },
-    { id: 'diagnostic', label: 'Mei Diagnostic & Sassy Mirror', icon: Sparkles, badge: 'AI' },
-    { id: 'aistudio', label: 'Multimodal AI Studio', icon: Radio, badge: 'Studio' },
-    { id: 'goals', label: 'Big 6 Goals OS', icon: Flame, badge: `${goals.length}/6` },
-    { id: 'weekly', label: 'Weekly Flight Debrief', icon: BookOpen, badge: 'Review' },
-    { id: 'money', label: 'Monthly Money Map', icon: DollarSign, badge: 'Finance' },
-    { id: 'themes', label: '12 Annual Arc Themes', icon: Award, badge: '12' },
-    { id: 'identity', label: 'Identity Base & Rules', icon: ShieldAlert, badge: 'Base' },
-  ];
+  // Flight Crew Handlers
+  const handleAddCrewContact = async (data: Omit<FlightCrewContact, 'id' | 'created_at'>) => {
+    try {
+      const created = await api.createFlightCrewContact(data);
+      setFlightCrew(prev => [...prev, created]);
+      showToast("Contact added to the flight crew.");
+    } catch (err) {
+      if (!(err instanceof AuthError)) showToast("Could not add contact.");
+    }
+  };
+
+  const handleUpdateCrewContact = async (id: string, updates: Partial<FlightCrewContact>) => {
+    try {
+      const updated = await api.updateFlightCrewContact(id, updates);
+      setFlightCrew(prev => prev.map(c => c.id === id ? updated : c));
+      showToast("Contact updated.");
+    } catch (err) {
+      if (!(err instanceof AuthError)) showToast("Could not update contact.");
+    }
+  };
+
+  const handleDeleteCrewContact = async (id: string) => {
+    try {
+      await api.deleteFlightCrewContact(id);
+      setFlightCrew(prev => prev.filter(c => c.id !== id));
+      showToast("Contact removed from crew.");
+    } catch (err) {
+      if (!(err instanceof AuthError)) showToast("Could not remove contact.");
+    }
+  };
+
+  const handleToggleAppTheme = () => {
+    const next = toggleTheme();
+    setDarkMode(next === 'midnight');
+  };
+
+  // ---------- Auth gate ----------
+  if (authLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-cream-canvas text-stone-600 dark:bg-[#000a15] dark:text-stone-300">
+        <div className="text-center">
+          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-stone-300 border-t-rose-600" />
+          <p className="font-mono-code text-xs uppercase tracking-widest">Waking up the chaos…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (oauthPending && !user) {
+    return (
+      <OAuthUsernameStep
+        pendingKey={oauthPending.key}
+        provider={oauthPending.provider}
+        onAuthed={(authedUser) => {
+          setOauthPending(null);
+          setUser(authedUser);
+          setActiveTab('dashboard');
+          loadAll();
+        }}
+      />
+    );
+  }
+
+  if (!user) {
+    return (
+      <AuthScreen
+        onAuthed={(authedUser) => {
+          setUser(authedUser);
+          setActiveTab('dashboard');
+          loadAll();
+        }}
+      />
+    );
+  }
+
+  const onOpenDashboardDoor = (tab: DashboardTab) => setActiveTab(tab);
 
   return (
-    <div className="min-h-screen bg-cream-canvas text-stone-900 flex flex-col font-sans selection:bg-rose-200 selection:text-rose-900">
-      
-      {/* Android & PWA Direct Install Notification Banner */}
-      <AndroidInstallBanner />
+    <div className="min-h-screen bg-cream-canvas text-stone-900 dark:bg-[#000a15] dark:text-cream-canvas flex flex-col font-sans selection:bg-rose-200 selection:text-rose-900">
 
-      {/* Top Main Navigation Bar */}
+      <InstallBanner />
+
       <Header
-        user={user}
-        activeTab={activeTab as any}
-        setActiveTab={(t) => setActiveTab(t as any)}
-        currentDate={currentDate}
-        setCurrentDate={setCurrentDate}
-        onOpenStickers={() => setStickersModalOpen(true)}
-        onOpenShare={() => handleOpenShare('daily')}
-        onOpenPackage={() => setPackageModalOpen(true)}
-        onRefreshData={loadData}
-        onExportPdf={handleExportPdf}
-        isDiagnosing={isDiagnosing}
-        currentUser={currentUser}
-        onSignInGoogle={handleSignInGoogle}
-        onSignOut={handleSignOut}
-        currentTheme={currentTheme}
-        onToggleTheme={handleToggleTheme}
+        username={user.chaos_name}
+        pointsTotal={pointsTotal}
+        activeTab={activeTab}
+        darkMode={darkMode}
+        dueCount={dueCount}
+        unreadCount={unreadCount}
+        toggleTheme={handleToggleAppTheme}
+        onDashboard={() => setActiveTab('dashboard')}
+        onOpenProfile={() => setActiveTab('identity')}
+        onOpenPoints={() => setActiveTab('points')}
+        onOpenSearch={() => setActiveTab('search')}
+        onOpenInbox={() => setActiveTab('inbox')}
+        onOpenReminders={() => setActiveTab('reminders')}
+        onLogout={() => handleLogout()}
       />
 
-      {/* Main App Layout: Sidebar + Canvas Content Area */}
-      <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 pb-24 md:pb-6 flex flex-col md:flex-row gap-6">
-        
-        {/* RESPONSIVE NAVIGATION SIDEBAR (Desktop) */}
-        <aside className="hidden md:flex flex-col w-64 flex-shrink-0 space-y-4">
-          
-          {/* Quick Operator Card */}
-          <div className="bg-white border-2 border-stone-800 rounded-2xl p-4 shadow-sm">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-600 to-amber-600 text-white flex items-center justify-center font-display-punch text-xl font-bold border border-stone-800 shadow-2xs">
-                ⚡
-              </div>
-              <div className="overflow-hidden">
-                <div className="text-[10px] font-mono-code uppercase font-bold text-rose-600">
-                  OPERATOR
-                </div>
-                <div className="font-serif-display font-bold text-slate-900 text-sm truncate">
-                  {user.chaos_name}
-                </div>
-                <div className="text-[11px] font-mono-code text-stone-500 truncate">
-                  Word: <span className="font-bold text-slate-800 uppercase">"{user.word_of_the_year}"</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick action button for Mei */}
-            <div className="mt-3 pt-3 border-t border-stone-200">
-              <button
-                onClick={handleRunDiagnostic}
-                disabled={isDiagnosing}
-                className="w-full py-2 px-3 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white text-xs font-bold rounded-xl flex items-center justify-center space-x-1.5 shadow-2xs transition-all disabled:opacity-50"
-              >
-                <Sparkles className={`w-3.5 h-3.5 ${isDiagnosing ? 'animate-spin' : ''}`} />
-                <span>{isDiagnosing ? 'Diagnosing...' : 'Run Mei Diagnostic'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Nav List */}
-          <div className="bg-white border border-stone-300 rounded-2xl p-2.5 shadow-xs space-y-1">
-            <div className="px-3 py-1.5 text-[10px] font-mono-code uppercase text-stone-400 font-bold tracking-wider">
-              Navigation Flights
-            </div>
-
-            {navigationItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all ${
-                    isActive
-                      ? 'bg-slate-900 text-white font-semibold shadow-xs'
-                      : 'text-stone-700 hover:bg-stone-100 hover:text-slate-900'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5 truncate">
-                    <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-rose-400' : 'text-stone-400'}`} />
-                    <span className="truncate">{item.label}</span>
-                  </div>
-                  <span className={`text-[10px] font-mono-code px-1.5 py-0.5 rounded ${
-                    isActive ? 'bg-stone-800 text-amber-300' : 'bg-stone-100 text-stone-500'
-                  }`}>
-                    {item.badge}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Micro Dare & Sticker Quick Launcher */}
-          <div className="bg-[#faf5eb] border border-amber-300/80 rounded-2xl p-4 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono-code font-bold uppercase text-amber-900">
-                QUICK TOOLS
-              </span>
-              <Smile className="w-4 h-4 text-amber-600" />
-            </div>
-            <p className="text-[11px] text-amber-950 font-medium">
-              Decorate your flight logs or stamp your emotional state.
+      {/* Email verification nudge */}
+      {user.email && !user.emailVerified && (
+        <div className="bg-amber-100 dark:bg-amber-950/60 border-b-2 border-amber-300 dark:border-amber-700/50 px-4 py-2">
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+              <Mail className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />
+              {user.email} isn't verified yet. Click the link we sent — it takes ten seconds.
             </p>
             <button
-              onClick={() => setStickersModalOpen(true)}
-              className="w-full py-2 bg-white border border-amber-300 hover:border-amber-400 text-amber-900 rounded-xl text-xs font-bold font-mono-code flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+              onClick={async () => {
+                try {
+                  await api.resendVerification();
+                  showToast('Verification email re-sent. Check your inbox.');
+                } catch (e) {
+                  showToast(e instanceof Error ? e.message : 'Could not resend.');
+                }
+              }}
+              className="text-[11px] font-bold font-mono-code uppercase tracking-wider px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-white rounded-lg transition-colors"
             >
-              <span>✦ Open Sticker Sheets</span>
+              Re-send email
             </button>
           </div>
+        </div>
+      )}
 
-          {/* Theme & Lighting Switcher: Cream Canvas vs. Midnight Focus */}
-          <div className="bg-white border border-stone-300 rounded-2xl p-3.5 shadow-xs space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono-code font-bold uppercase text-stone-500 tracking-wider">
-                Theme & Lighting
-              </span>
-              {currentTheme === 'midnight' ? (
-                <Moon className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-              ) : (
-                <Sun className="w-3.5 h-3.5 text-amber-600" />
-              )}
-            </div>
-            
-            <p className="text-[11px] text-stone-600 leading-snug">
-              {currentTheme === 'midnight'
-                ? 'Midnight Focus active: deep high-contrast OLED dark mode for late-night journaling.'
-                : 'Cream Canvas active: warm tactile paper finish with editorial typography.'}
-            </p>
+      {/* Main App Layout: Dashboard + section views */}
+      <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
 
-            <div className="grid grid-cols-2 gap-1.5 p-1 bg-stone-100 rounded-xl">
-              <button
-                type="button"
-                id="sidebar-cream-theme-btn"
-                onClick={() => currentTheme !== 'cream' && handleToggleTheme()}
-                className={`py-1.5 px-2 rounded-lg text-xs font-mono-code font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  currentTheme === 'cream'
-                    ? 'bg-white text-stone-900 shadow-xs border border-stone-200'
-                    : 'text-stone-500 hover:text-stone-800'
-                }`}
-                title="Switch to default Cream Canvas theme"
-              >
-                <Sun className="w-3.5 h-3.5 text-amber-600" />
-                <span>Cream</span>
-              </button>
-              <button
-                type="button"
-                id="sidebar-midnight-theme-btn"
-                onClick={() => currentTheme !== 'midnight' && handleToggleTheme()}
-                className={`py-1.5 px-2 rounded-lg text-xs font-mono-code font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  currentTheme === 'midnight'
-                    ? 'bg-slate-900 text-amber-300 shadow-xs border border-slate-700'
-                    : 'text-stone-500 hover:text-stone-800'
-                }`}
-                title="Switch to Midnight Focus high-contrast dark theme"
-              >
-                <Moon className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-                <span>Midnight</span>
-              </button>
-            </div>
-          </div>
+        {/* Back to dashboard breadcrumb */}
+        {activeTab !== 'dashboard' && (
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className="mb-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold font-mono-code uppercase tracking-wider bg-stone-200 dark:bg-white/10 text-stone-700 dark:text-stone-200 hover:bg-stone-300 dark:hover:bg-white/20 transition-colors print:hidden"
+          >
+            <ChevronLeft className="w-4 h-4" /> All doors
+          </button>
+        )}
 
-          {/* Package App & Sovereignty Launcher */}
-          <div className="bg-slate-900 text-stone-200 border border-stone-800 rounded-2xl p-4 shadow-sm space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono-code font-bold uppercase text-amber-400">
-                DATA SOVEREIGNTY
-              </span>
-              <Download className="w-4 h-4 text-rose-400" />
-            </div>
-            <p className="text-[11px] text-stone-300 font-medium">
-              Export offline JSON, install on Android, or print physical layout spreads.
-            </p>
-            <button
-              onClick={() => setPackageModalOpen(true)}
-              className="w-full py-2 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white rounded-xl text-xs font-bold font-mono-code flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
-            >
-              <span>✦ Package / Export App</span>
-            </button>
-          </div>
+        <main className="min-w-0">
+          {activeTab === 'dashboard' && (
+            <DashboardView
+              user={user}
+              pointsTotal={pointsTotal}
+              goalsCount={goals.length}
+              crewCount={flightCrew.length}
+              streak={streak}
+              dueCount={dueCount}
+              unreadCount={unreadCount}
+              onOpen={onOpenDashboardDoor}
+            />
+          )}
 
-          {/* Small Manifesto Quote */}
-          <div className="p-3 text-[11px] text-stone-500 italic font-serif-display border-l-2 border-stone-400 pl-3">
-            "Ideas &gt; Rules. The system bends so you don't break."
-          </div>
-        </aside>
-
-        {/* MAIN CONTENT AREA */}
-        <main className="flex-1 min-w-0">
-          
-          {/* Active Tab View Rendering */}
           {activeTab === 'cover' && (
             <CoverArtView
               onOpenDaily={() => setActiveTab('daily')}
               wordOfTheYear={user.word_of_the_year}
               chaosName={user.chaos_name}
               slogan={user.slogan || "Boredom=Death"}
-            />
-          )}
-
-          {activeTab === 'frontmatter' && (
-            <FrontMatterView
-              user={user}
-              onSaveProfile={handleSaveProfile}
-              onNavigateToGoals={() => setActiveTab('goals')}
-              onNavigateToDaily={() => setActiveTab('daily')}
-              onToast={showToast}
             />
           )}
 
@@ -614,12 +623,7 @@ export default function App() {
                 currentDate={currentDate}
                 onDateChange={(d) => setCurrentDate(d)}
                 onOpenStickers={() => setStickersModalOpen(true)}
-                onOpenShare={(ctx) => handleOpenShare(ctx || 'daily')}
-                goals={goals}
-                onNavigateToGoals={() => setActiveTab('goals')}
-                allEntries={allEntries}
-                currentTheme={currentTheme}
-                onToggleTheme={handleToggleTheme}
+                onOpenShare={handleOpenShare}
               />
 
               {/* Mei Diagnostic Card right below */}
@@ -628,7 +632,6 @@ export default function App() {
                 onTriggerDiagnosis={handleRunDiagnostic}
                 isLoading={isDiagnosing}
                 hasLatestEntryContent={Boolean(dailyEntry.evening_notes && dailyEntry.evening_notes.length > 5)}
-                onOpenShare={() => handleOpenShare('diagnostic')}
               />
 
               {/* Chaos Trendline Teaser Card */}
@@ -679,22 +682,21 @@ export default function App() {
                 onTriggerDiagnosis={handleRunDiagnostic}
                 isLoading={isDiagnosing}
                 hasLatestEntryContent={Boolean(dailyEntry.evening_notes && dailyEntry.evening_notes.length > 5)}
-                onOpenShare={() => handleOpenShare('diagnostic')}
               />
 
               {/* Quick Jump back to write notes */}
-              <div className="bg-white border border-stone-300 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="bg-white dark:bg-[#02142e] border border-stone-300 dark:border-white/10 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
-                  <h4 className="font-bold text-sm text-slate-900 font-serif-display">
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-cream-canvas font-serif-display">
                     Need to feed more raw notes to the diagnostic mirror?
                   </h4>
-                  <p className="text-xs text-stone-600">
+                  <p className="text-xs text-stone-600 dark:text-stone-400">
                     Jump into today's Evening Rant Box to pour out your uncurated field notes.
                   </p>
                 </div>
                 <button
                   onClick={() => setActiveTab('daily')}
-                  className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition-colors whitespace-nowrap"
+                  className="px-4 py-2 bg-slate-900 dark:bg-amber-400 hover:bg-black dark:hover:bg-amber-300 text-white dark:text-stone-950 text-xs font-bold rounded-xl transition-colors whitespace-nowrap"
                 >
                   Go to Rant Box →
                 </button>
@@ -702,18 +704,32 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'aistudio' && (
-            <AIStudioHubView
+          {activeTab === 'cosmic' && (
+            <CosmicCornerView
               user={user}
-              dailyEntry={dailyEntry}
-              onUpdateDailyEntry={handleSaveDailyEntry}
-              currentUser={currentUser}
-              onShowToast={showToast}
+              onEditProfile={() => setActiveTab('identity')}
+              onSaveProfile={handleSaveProfile}
             />
+          )}
+
+          {activeTab === 'holidays' && (
+            <HolidaysView />
           )}
 
           {activeTab === 'goals' && (
             <Big6GoalsTracker
+              section="goals"
+              goals={goals}
+              onAddGoal={handleAddGoal}
+              onToggleGoal={handleToggleGoal}
+              onDeleteGoal={handleDeleteGoal}
+              onOpenShare={handleOpenShare}
+            />
+          )}
+
+          {activeTab === 'antigoals' && (
+            <Big6GoalsTracker
+              section="antigoals"
               goals={goals}
               onAddGoal={handleAddGoal}
               onToggleGoal={handleToggleGoal}
@@ -722,7 +738,7 @@ export default function App() {
               onAddAntiGoal={handleAddAntiGoal}
               onToggleAntiGoal={handleToggleAntiGoal}
               onDeleteAntiGoal={handleDeleteAntiGoal}
-              onOpenShare={() => handleOpenShare('antigoals')}
+              onOpenShare={handleOpenShare}
             />
           )}
 
@@ -732,8 +748,9 @@ export default function App() {
                 try {
                   await api.saveWeeklyDebrief(debrief);
                   showToast("Weekly Flight Debrief committed.");
+                  awardPoints('weekly_debrief', `weekly_debrief:${debrief.week_number}`, `Weekly Debrief · Week ${debrief.week_number}`);
                 } catch (e) {
-                  showToast("Weekly Debrief saved locally.");
+                  if (!(e instanceof AuthError)) showToast("Weekly Debrief saved locally.");
                 }
               }}
             />
@@ -746,7 +763,7 @@ export default function App() {
                   await api.saveMoneyMap(m);
                   showToast("Monthly Money Map saved.");
                 } catch (e) {
-                  showToast("Money Map saved locally.");
+                  if (!(e instanceof AuthError)) showToast("Money Map saved locally.");
                 }
               }}
             />
@@ -760,7 +777,84 @@ export default function App() {
             <IdentityProfileView
               user={user}
               onSaveProfile={handleSaveProfile}
-              onOpenShare={() => handleOpenShare('identity')}
+            />
+          )}
+
+          {activeTab === 'points' && (
+            <ChaosPointsView
+              points={points}
+              entryDates={allEntries.map((e) => e.entry_date)}
+              onRefresh={loadAll}
+            />
+          )}
+
+          {activeTab === 'crew' && (
+            <FlightCrewView
+              contacts={flightCrew}
+              onAdd={handleAddCrewContact}
+              onUpdate={handleUpdateCrewContact}
+              onDelete={handleDeleteCrewContact}
+            />
+          )}
+
+          {activeTab === 'backup' && (
+            <DriveBackupView onRestored={loadAll} entries={allEntries} />
+          )}
+
+          {activeTab === 'unlock' && (
+            <UnlockScreen
+              onUnlocked={(packId) => showToast(`Pack unlocked: ${packId}`)}
+            />
+          )}
+
+          {activeTab === 'tourguide' && (
+            <TourGuideView />
+          )}
+
+          {activeTab === 'frontmatter' && (
+            <FrontMatterView
+              user={user}
+              onSaveProfile={handleSaveProfile}
+              onNavigateToGoals={() => setActiveTab('goals')}
+              onNavigateToDaily={() => setActiveTab('daily')}
+              onToast={showToast}
+            />
+          )}
+
+          {activeTab === 'studio' && (
+            <AiStudioView userId={user.id} />
+          )}
+
+          {activeTab === 'wall' && (
+            <ChaosWallView user={user} myUserId={user.id} />
+          )}
+
+          {activeTab === 'inbox' && (
+            <InboxView
+              user={user}
+              myUserId={user.id}
+              onUnreadChange={(n) => setUnreadCount(n)}
+            />
+          )}
+
+          {activeTab === 'reminders' && (
+            <RemindersView
+              user={user}
+              onSaveProfile={handleSaveProfile}
+              onNavigate={() => setActiveTab('dashboard')}
+            />
+          )}
+
+          {activeTab === 'search' && (
+            <SearchView
+              user={user}
+              entries={allEntries}
+              goals={goals}
+              antiGoals={antiGoals}
+              debriefs={debriefs}
+              moneyMaps={moneyMaps}
+              flightCrew={flightCrew}
+              onNavigate={handleSearchNavigate}
             />
           )}
         </main>
@@ -778,7 +872,6 @@ export default function App() {
         }}
       />
 
-      {/* SOCIAL SHARE CARD GENERATOR MODAL */}
       <SocialShareModal
         isOpen={shareModalOpen}
         onClose={() => setShareModalOpen(false)}
@@ -786,65 +879,54 @@ export default function App() {
         dailyEntry={dailyEntry}
         snapshot={latestSnapshot}
         antiGoals={antiGoals}
-        goals={goals}
         initialContext={shareContext}
         onToast={showToast}
+        onShareFired={() => awardPoints('share_fired', `share_fired:${currentDate}`, `Shared the Chaos · ${currentDate}`)}
       />
 
-      {/* SOVEREIGN DATA / PWA / PRINT PACKAGE MODAL */}
       <PackageAppModal
         isOpen={packageModalOpen}
         onClose={() => setPackageModalOpen(false)}
-        user={user}
-        dailyEntry={dailyEntry}
-        snapshot={latestSnapshot}
-        goals={goals}
-        antiGoals={antiGoals}
-        debriefs={[]}
-        moneyMaps={[]}
         onToast={showToast}
-        onImportData={(imported) => {
-          if (imported.user) setUser(imported.user);
-          if (imported.goals) setGoals(imported.goals);
-          if (imported.antiGoals) setAntiGoals(imported.antiGoals);
-          if (imported.dailyEntry) setDailyEntry(imported.dailyEntry);
-          showToast("Sovereign backup restored successfully!");
-        }}
       />
+
+      <OfflineIndicator />
+
+      {/* Google Gemini consent gate + Android first-launch permission explainer.
+          Both are passive overlays: declining/dismissing never blocks the app. */}
+      <AiConsentGate userId={user.id} />
+      <AndroidPermissionGate userId={user.id} />
+
+      {/* First-run onboarding tour */}
+      {showTour && (
+        <OnboardingTour onDone={handleFinishOnboarding} />
+      )}
 
       {/* FLOATING TOAST NOTIFICATION */}
       {toastMessage && (
-        <div className="fixed bottom-20 md:bottom-5 right-4 md:right-5 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl text-xs font-mono-code flex items-center space-x-2 border border-stone-700 animate-fade-in print:hidden">
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl text-xs font-mono-code flex items-center space-x-2 border border-stone-700 shadow-[0_0_28px_rgba(234,71,152,0.28)] animate-fade-in print:hidden">
           <span className="w-2 h-2 rounded-full bg-emerald-400" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* OFFLINE CONNECTIVITY INDICATOR */}
-      <OfflineIndicator />
-
-      {/* ANDROID MOBILE BOTTOM NAVIGATION BAR */}
-      <AndroidBottomNav
-        activeTab={activeTab as any}
-        setActiveTab={(t) => setActiveTab(t as any)}
-        onOpenStickers={() => setStickersModalOpen(true)}
-        onOpenShare={() => handleOpenShare('daily')}
-        onOpenPackage={() => setPackageModalOpen(true)}
-        currentTheme={currentTheme}
-        onToggleTheme={handleToggleTheme}
-      />
-
       {/* FOOTER */}
-      <footer className="border-t border-stone-300 bg-[#faf7f0] py-6 px-4 text-center text-xs text-stone-500 font-mono-code mt-auto print:hidden">
+      <footer className="border-t border-stone-300 dark:border-white/10 bg-[#faf7f0] dark:bg-[#000a15] py-6 px-4 text-center text-xs text-stone-500 dark:text-stone-400 font-mono-code mt-auto print:hidden">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center space-x-2">
-            <span className="font-bold text-slate-800">Life OS: Off*Script 2027.</span>
+            <span className="font-bold text-slate-800 dark:text-stone-200">Life OS: Off*Script 2027.</span>
             <span>·</span>
             <span>Chaos Year Edition</span>
           </div>
-          <div className="text-stone-400">
+          <div className="text-stone-400 dark:text-stone-500">
             Mei-Style Natural Language Personality Engine · No Toxic Positivity
           </div>
+          <button
+            onClick={() => setPackageModalOpen(true)}
+            className="text-[11px] font-mono-code font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 hover:text-rose-600 dark:hover:text-rose-300 transition-colors underline underline-offset-2"
+          >
+            Package the Android app
+          </button>
         </div>
       </footer>
     </div>

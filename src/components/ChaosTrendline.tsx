@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { DailyEntry } from '../types';
+import { useDarkMode } from '../hooks/useDarkMode';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -52,6 +53,20 @@ export const ChaosTrendline: React.FC<ChaosTrendlineProps> = ({
 }) => {
   const [filterMode, setFilterMode] = useState<'all' | 'spikes' | 'controlled' | 'dips'>('all');
   const [hoveredPoint, setHoveredPoint] = useState<TrendDataPoint | null>(null);
+  const isDark = useDarkMode();
+
+  // Chart palette: luminous brand colors on the deep navy canvas in Midnight Chaos.
+  const chart = {
+    grid: isDark ? '#274264' : '#e7e5e4',
+    axis: isDark ? '#8b93a8' : '#78716c',
+    zoneFill: isDark ? '#f5c51b' : '#fef3c7',
+    zoneLabel: isDark ? '#fde68a' : '#92400e',
+    spikeLine: isDark ? '#ea4798' : '#ea4798',
+    spikeLabel: isDark ? '#f49ac2' : '#ea4798',
+    lullLine: isDark ? '#8b93a8' : '#64748b',
+    lullLabel: isDark ? '#a3abc0' : '#475569',
+    dipDot: isDark ? '#8b93a8' : '#475569',
+  };
 
   // Generate 30 days of data, filling in actual user entries and realistic sample context
   const trendData: TrendDataPoint[] = useMemo(() => {
@@ -300,25 +315,25 @@ export const ChaosTrendline: React.FC<ChaosTrendlineProps> = ({
               <defs>
                 {/* Gradient for the sovereign sweet spot curve */}
                 <linearGradient id="chaosGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.45} />
+                  <stop offset="5%" stopColor="#ea4798" stopOpacity={0.45} />
                   <stop offset="35%" stopColor="#f59e0b" stopOpacity={0.35} />
-                  <stop offset="75%" stopColor="#38bdf8" stopOpacity={0.2} />
+                  <stop offset="75%" stopColor="#2da2ee" stopOpacity={0.2} />
                   <stop offset="100%" stopColor="#cbd5e1" stopOpacity={0.05} />
                 </linearGradient>
               </defs>
 
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chart.grid} />
               
               {/* Background Reference Zone for Controlled Chaos (Sweet Spot: 4 to 7.5) */}
               <ReferenceArea
                 y1={4}
                 y2={7.5}
-                fill="#fef3c7"
-                fillOpacity={0.45}
+                fill={chart.zoneFill}
+                fillOpacity={isDark ? 0.12 : 0.45}
                 label={{
                   value: "CONTROLLED CHAOS (SOVEREIGN FLOW)",
                   position: "insideTopRight",
-                  fill: "#92400e",
+                  fill: chart.zoneLabel,
                   fontSize: 10,
                   fontWeight: 700,
                   fontFamily: "DM Mono, monospace"
@@ -328,26 +343,26 @@ export const ChaosTrendline: React.FC<ChaosTrendlineProps> = ({
               {/* Threshold Lines */}
               <ReferenceLine
                 y={7.5}
-                stroke="#f43f5e"
+                stroke={chart.spikeLine}
                 strokeDasharray="4 4"
                 strokeWidth={1.5}
                 label={{
                   value: "Spike Threshold (≥8)",
                   position: "insideTopLeft",
-                  fill: "#be123c",
+                  fill: chart.spikeLabel,
                   fontSize: 10,
                   fontWeight: 600
                 }}
               />
               <ReferenceLine
                 y={3.5}
-                stroke="#64748b"
+                stroke={chart.lullLine}
                 strokeDasharray="4 4"
                 strokeWidth={1.5}
                 label={{
                   value: "Inertia Lull (≤3)",
                   position: "insideBottomLeft",
-                  fill: "#475569",
+                  fill: chart.lullLabel,
                   fontSize: 10,
                   fontWeight: 600
                 }}
@@ -356,16 +371,16 @@ export const ChaosTrendline: React.FC<ChaosTrendlineProps> = ({
               <XAxis
                 dataKey="displayDate"
                 tickLine={false}
-                stroke="#78716c"
-                tick={{ fontSize: 10, fill: '#78716c', fontFamily: 'DM Mono, monospace' }}
+                stroke={chart.axis}
+                tick={{ fontSize: 10, fill: chart.axis, fontFamily: 'DM Mono, monospace' }}
                 interval={4}
               />
               <YAxis
                 domain={[1, 10]}
                 ticks={[1, 3, 5, 7, 9, 10]}
                 tickLine={false}
-                stroke="#78716c"
-                tick={{ fontSize: 10, fill: '#78716c', fontFamily: 'DM Mono, monospace' }}
+                stroke={chart.axis}
+                tick={{ fontSize: 10, fill: chart.axis, fontFamily: 'DM Mono, monospace' }}
               />
 
               <Tooltip
@@ -411,7 +426,7 @@ export const ChaosTrendline: React.FC<ChaosTrendlineProps> = ({
               <Area
                 type="monotone"
                 dataKey="score"
-                stroke="#e11d48"
+                stroke="#ea4798"
                 strokeWidth={2.5}
                 fillOpacity={1}
                 fill="url(#chaosGradient)"
@@ -419,7 +434,7 @@ export const ChaosTrendline: React.FC<ChaosTrendlineProps> = ({
                   const { cx, cy, payload } = props;
                   const isSpike = payload.score >= 8;
                   const isDip = payload.score <= 3;
-                  const fillColor = isSpike ? '#e11d48' : isDip ? '#475569' : '#f59e0b';
+                  const fillColor = isSpike ? '#ea4798' : isDip ? chart.dipDot : '#f59e0b';
                   const radius = isSpike ? 5 : isDip ? 4 : 3;
 
                   return (
@@ -437,7 +452,7 @@ export const ChaosTrendline: React.FC<ChaosTrendlineProps> = ({
                 }}
                 activeDot={{
                   r: 7,
-                  fill: '#e11d48',
+                  fill: '#ea4798',
                   stroke: '#ffffff',
                   strokeWidth: 2
                 }}

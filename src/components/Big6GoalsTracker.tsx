@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Goal, AntiGoal, GoalStressTestResult, SuggestedAntiGoal } from '../types';
+import { Goal, AntiGoal } from '../types';
 import {
   Flame,
   CheckCircle2,
@@ -17,13 +17,9 @@ import {
   Filter,
   CheckSquare,
   Square,
-  Share2,
-  Wand2,
-  AlertTriangle,
-  Loader2
+  Share2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { api } from '../services/api';
 
 interface Big6GoalsTrackerProps {
   goals: Goal[];
@@ -35,6 +31,8 @@ interface Big6GoalsTrackerProps {
   onToggleAntiGoal?: (id: string, isCompleted: boolean) => void;
   onDeleteAntiGoal?: (id: string) => void;
   onOpenShare?: (context?: 'daily' | 'identity' | 'mantra' | 'antigoals' | 'diagnostic') => void;
+  /** Render only one section (dashboard doors). Omit for the combined view. */
+  section?: 'goals' | 'antigoals';
 }
 
 const ANTI_GOAL_PRESETS = [
@@ -92,7 +90,8 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
   onAddAntiGoal,
   onToggleAntiGoal,
   onDeleteAntiGoal,
-  onOpenShare
+  onOpenShare,
+  section
 }) => {
   // Forward Goals state
   const [isAdding, setIsAdding] = useState(false);
@@ -102,14 +101,6 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
   const [successMetric, setSuccessMetric] = useState('');
   const [firstStep, setFirstStep] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-
-  // AI Goal Stress-Test State
-  const [isStressTesting, setIsStressTesting] = useState(false);
-  const [stressTestResult, setStressTestResult] = useState<GoalStressTestResult | null>(null);
-
-  // AI Anti-Goals Suggestion State
-  const [isSuggestingAntiGoals, setIsSuggestingAntiGoals] = useState(false);
-  const [aiAntiGoalSuggestions, setAiAntiGoalSuggestions] = useState<SuggestedAntiGoal[]>([]);
 
   // Anti-Goals state with fallback
   const [localAntiGoals, setLocalAntiGoals] = useState<AntiGoal[]>([
@@ -182,75 +173,6 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
     setFirstStep('');
     setIsAdding(false);
     setErrorMsg('');
-    setStressTestResult(null);
-  };
-
-  const handleStressTestGoal = async () => {
-    if (!title.trim()) {
-      setErrorMsg('Enter at least a goal title before stress-testing.');
-      return;
-    }
-    setIsStressTesting(true);
-    setErrorMsg('');
-    try {
-      const result = await api.stressTestGoal({
-        title,
-        why_statement: whyStatement,
-        success_metric: successMetric,
-        first_step: firstStep,
-        quarter
-      });
-      setStressTestResult(result);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsStressTesting(false);
-    }
-  };
-
-  const handleApplyGoalRefinement = () => {
-    if (stressTestResult?.suggested_refinement) {
-      const s = stressTestResult.suggested_refinement;
-      if (s.title) setTitle(s.title);
-      if (s.why_statement) setWhyStatement(s.why_statement);
-      if (s.success_metric) setSuccessMetric(s.success_metric);
-      if (s.first_step) setFirstStep(s.first_step);
-      setStressTestResult(null);
-    }
-  };
-
-  const handleGenerateAiAntiGoals = async () => {
-    setIsSuggestingAntiGoals(true);
-    try {
-      const result = await api.suggestAntiGoals({ category: antiCategory });
-      setAiAntiGoalSuggestions(result.suggestions || []);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsSuggestingAntiGoals(false);
-    }
-  };
-
-  const handleAdoptAiAntiGoal = (suggestion: SuggestedAntiGoal) => {
-    const payload = {
-      title: suggestion.title,
-      category: (suggestion.category as any) || 'Boundary',
-      why_stopped: suggestion.why_stopped,
-      is_completed: false
-    };
-
-    if (onAddAntiGoal) {
-      onAddAntiGoal(payload);
-    } else {
-      const fallback: AntiGoal = {
-        ...payload,
-        id: `antigoal_${Date.now()}_${Math.random()}`,
-        created_at: new Date().toISOString()
-      };
-      setLocalAntiGoals(prev => [...prev, fallback]);
-    }
-    // Remove from suggestions
-    setAiAntiGoalSuggestions(prev => prev.filter(s => s.title !== suggestion.title));
   };
 
   const handleToggle = (id: string, currentStatus: boolean) => {
@@ -308,7 +230,7 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
         particleCount: 45,
         spread: 60,
         origin: { y: 0.7 },
-        colors: ['#e11d48', '#f43f5e', '#fb7185', '#f59e0b', '#10b981']
+        colors: ['#ea4798', '#ec6aa2', '#f6b9d6', '#f59e0b', '#2da2ee']
       });
     }
   };
@@ -345,6 +267,8 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
 
   return (
     <div className="space-y-8">
+      {(!section || section === 'goals') && (
+      <>
       {/* SECTION 1: THE BIG 6 GOALS BANNER */}
       <div className="bg-white border-2 border-stone-800 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -475,102 +399,20 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
             </div>
           </div>
 
-          {/* Stress Test Result Card */}
-          {stressTestResult && (
-            <div className="p-4 rounded-xl border border-amber-300 bg-white/90 text-xs shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <span className="font-bold text-slate-900 font-serif-display text-sm">
-                    Bullshit Detector Verdict:
-                  </span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full font-mono-code font-bold text-[11px] border ${
-                      stressTestResult.verdict === 'Pass'
-                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                        : stressTestResult.verdict === 'Needs Sharpening'
-                        ? 'bg-amber-100 text-amber-800 border-amber-300'
-                        : 'bg-rose-100 text-rose-800 border-rose-300'
-                    }`}
-                  >
-                    {stressTestResult.verdict}
-                  </span>
-                </div>
-                {stressTestResult.suggested_refinement && (
-                  <button
-                    type="button"
-                    onClick={handleApplyGoalRefinement}
-                    className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition-all flex items-center space-x-1"
-                  >
-                    <Wand2 className="w-3 h-3" />
-                    <span>Apply AI Refinement</span>
-                  </button>
-                )}
-              </div>
-
-              <p className="text-stone-700 leading-relaxed italic">
-                "{stressTestResult.analysis}"
-              </p>
-
-              {stressTestResult.traps_detected && stressTestResult.traps_detected.length > 0 && (
-                <div>
-                  <span className="font-bold text-rose-700 font-mono-code text-[11px] uppercase tracking-wider block mb-1">
-                    Hidden Traps Identified:
-                  </span>
-                  <ul className="list-disc list-inside text-stone-600 space-y-0.5">
-                    {stressTestResult.traps_detected.map((trap: string, tIdx: number) => (
-                      <li key={tIdx}>{trap}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {stressTestResult.suggested_refinement && (
-                <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-1 font-mono-code text-[11px]">
-                  <span className="text-amber-900 font-bold block">Sharpened Version:</span>
-                  <p><span className="text-stone-500">Title:</span> {stressTestResult.suggested_refinement.title}</p>
-                  <p><span className="text-stone-500">Metric:</span> {stressTestResult.suggested_refinement.success_metric}</p>
-                  <p><span className="text-stone-500">24h Step:</span> {stressTestResult.suggested_refinement.first_step}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-amber-200/80">
+          <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
-              onClick={handleStressTestGoal}
-              disabled={isStressTesting || !title.trim()}
-              className="px-3.5 py-2 rounded-lg bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold transition-all shadow-2xs flex items-center space-x-1.5 disabled:opacity-40"
-              title="Run Bullshit Detector stress-test using Gemini"
+              onClick={() => setIsAdding(false)}
+              className="px-3.5 py-1.5 text-xs text-stone-600 hover:text-stone-900"
             >
-              {isStressTesting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
-                  <span>Stress-Testing Ambition...</span>
-                </>
-              ) : (
-                <>
-                  <Wand2 className="w-3.5 h-3.5 text-amber-600" />
-                  <span>AI Stress-Test (Bullshit Detector)</span>
-                </>
-              )}
+              Cancel
             </button>
-
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setIsAdding(false)}
-                className="px-3.5 py-1.5 text-xs text-stone-600 hover:text-stone-900"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg shadow-xs"
-              >
-                Commit to Slot
-              </button>
-            </div>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg shadow-xs"
+            >
+              Commit to Slot
+            </button>
           </div>
         </form>
       )}
@@ -684,6 +526,10 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
         })}
       </div>
 
+      </>
+      )}
+      {(!section || section === 'antigoals') && (
+      <>
       {/* ========================================================================= */}
       {/* SECTION 2: ANTI-GOALS (WHAT YOU COMMIT TO STOP DOING) */}
       {/* ========================================================================= */}
@@ -759,7 +605,7 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
           <div className="mt-5 pt-4 border-t border-stone-800/80 flex items-center gap-3">
             <div className="flex-1 bg-stone-800 rounded-full h-2 overflow-hidden border border-stone-700">
               <div
-                className="bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-400 h-full rounded-full transition-all duration-500"
+                className="bg-gradient-to-r from-rose-500 via-amber-400 to-teal-400 h-full rounded-full transition-all duration-500"
                 style={{
                   width: effectiveAntiGoals.length > 0
                     ? `${(eliminatedAntiCount / effectiveAntiGoals.length) * 100}%`
@@ -845,67 +691,12 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
               />
             </div>
 
-            {/* Quick Inspiration Presets & AI Generator */}
-            <div className="pt-2 border-t border-rose-200/80 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-1.5 text-[11px] font-bold font-mono-code text-rose-900">
-                  <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
-                  <span>STARTER ANTI-GOAL PRESETS:</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleGenerateAiAntiGoals}
-                  disabled={isSuggestingAntiGoals}
-                  className="text-[11px] font-mono-code font-bold px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 transition-colors flex items-center space-x-1 disabled:opacity-50"
-                  title="Generate custom anti-goals for this category using Gemini"
-                >
-                  {isSuggestingAntiGoals ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin text-rose-700" />
-                      <span>Generating AI Boundaries...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-3 h-3 text-rose-700" />
-                      <span>AI Generate Anti-Goals</span>
-                    </>
-                  )}
-                </button>
+            {/* Quick Inspiration Presets */}
+            <div className="pt-2 border-t border-rose-200/80">
+              <div className="flex items-center space-x-1.5 text-[11px] font-bold font-mono-code text-rose-900 mb-2">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
+                <span>OR CHOOSE AN OFF*SCRIPT STARTER ANTI-GOAL:</span>
               </div>
-
-              {/* AI Suggestions Box */}
-              {aiAntiGoalSuggestions.length > 0 && (
-                <div className="p-3 bg-purple-50/80 border border-purple-200 rounded-xl space-y-2">
-                  <div className="flex items-center justify-between text-[11px] font-bold font-mono-code text-purple-900">
-                    <span>GEMINI ANTI-GOAL SUGGESTIONS (CLICK TO ADOPT):</span>
-                    <button
-                      type="button"
-                      onClick={() => setAiAntiGoalSuggestions([])}
-                      className="text-purple-600 hover:text-purple-900 text-xs"
-                    >
-                      ✕ Dismiss
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {aiAntiGoalSuggestions.map((sug, sIdx) => (
-                      <div
-                        key={sIdx}
-                        onClick={() => handleAdoptAiAntiGoal(sug)}
-                        className="p-2.5 bg-white border border-purple-200 rounded-lg hover:border-purple-400 hover:bg-purple-100/50 cursor-pointer transition-all shadow-2xs group text-xs"
-                      >
-                        <div className="font-bold text-slate-900 group-hover:text-purple-800 flex items-center justify-between mb-1">
-                          <span>{sug.title}</span>
-                          <Plus className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                        </div>
-                        <p className="text-[10px] text-stone-500 line-clamp-2">
-                          {sug.why_stopped}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <div className="flex flex-wrap gap-1.5">
                 {ANTI_GOAL_PRESETS.map((preset, pIdx) => (
                   <button
@@ -1129,7 +920,8 @@ export const Big6GoalsTracker: React.FC<Big6GoalsTrackerProps> = ({
           </span>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };
-

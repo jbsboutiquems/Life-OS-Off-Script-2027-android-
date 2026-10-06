@@ -1,4 +1,4 @@
-package com.snoopyscloset.lifeos.offscript2027;
+package app.offscript.lifeos;
 
 import static org.junit.Assert.*;
 
@@ -21,6 +21,6 @@ public class ExampleInstrumentedTest {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
-        assertEquals("com.snoopyscloset.lifeos.offscript2027", appContext.getPackageName());
+        assertEquals("app.offscript.lifeos", appContext.getPackageName());
     }
 }

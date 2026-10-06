@@ -1,443 +1,342 @@
 import React, { useState } from 'react';
-import { usePWAInstall } from '../hooks/usePWAInstall';
-import { UserProfile, DailyEntry, PersonalitySnapshot, Goal, AntiGoal, WeeklyFlightDebrief, MonthlyMoneyMap } from '../types';
 import {
+  X,
   Smartphone,
+  Package,
+  Rocket,
   Download,
-  Upload,
-  Printer,
   Copy,
   Check,
-  X,
-  Layers,
-  Terminal,
-  FileCode,
   ShieldCheck,
   Sparkles,
-  ExternalLink,
-  QrCode
+  GitBranch,
+  Terminal,
+  Info,
+  Bell,
+  Home
 } from 'lucide-react';
+
+type PackageTab = 'overview' | 'sideload' | 'release';
 
 interface PackageAppModalProps {
   isOpen: boolean;
   onClose: () => void;
-  user: UserProfile;
-  dailyEntry: DailyEntry;
-  snapshot: PersonalitySnapshot | null;
-  goals: Goal[];
-  antiGoals: AntiGoal[];
-  debriefs: WeeklyFlightDebrief[];
-  moneyMaps: MonthlyMoneyMap[];
   onToast?: (msg: string) => void;
-  onImportData?: (importedData: any) => void;
 }
+
+const RELEASE_WORKFLOW_PATH = '.github/workflows/android-release.yml';
+const REPO = 'github.com/jbsboutiquems/off-script-life-os';
+
+const LOCAL_BUILD_COMMAND = `cd android
+./gradlew assembleRelease`;
 
 export const PackageAppModal: React.FC<PackageAppModalProps> = ({
   isOpen,
   onClose,
-  user,
-  dailyEntry,
-  snapshot,
-  goals,
-  antiGoals,
-  debriefs,
-  moneyMaps,
-  onToast,
-  onImportData
+  onToast
 }) => {
-  const { isInstallable, isInstalled, isAndroid, install } = usePWAInstall();
-  const [activeTab, setActiveTab] = useState<'android' | 'export_json' | 'print' | 'developer'>('android');
+  const [activeTab, setActiveTab] = useState<PackageTab>('overview');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedCode(id);
-    setTimeout(() => setCopiedCode(null), 2500);
-    if (onToast) onToast("Copied to clipboard!");
+  const handleCopy = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCode(id);
+      setTimeout(() => setCopiedCode(null), 2500);
+      if (onToast) onToast('Copied to clipboard!');
+    } catch {
+      // clipboard unavailable; no-op
+    }
   };
 
-  // Export full planner data as JSON
-  const handleExportJSON = () => {
-    const backupData = {
-      app: '2027 Life OS: Off Script',
-      version: '1.0.0',
-      exported_at: new Date().toISOString(),
-      user,
-      current_daily_entry: dailyEntry,
-      latest_diagnostic: snapshot,
-      goals,
-      anti_goals: antiGoals,
-      weekly_debriefs: debriefs,
-      monthly_money_maps: moneyMaps,
-      local_storage: {
-        word_reflections: localStorage.getItem('offscript_word_reflections'),
-        vision_dump: localStorage.getItem('offscript_vision_dump'),
-        life_audit: localStorage.getItem('offscript_life_audit'),
-        permission_slip: localStorage.getItem('offscript_permission_slip'),
-        contacts: localStorage.getItem('offscript_contacts')
-      }
-    };
-
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `life-os-offscript-backup-${user.chaos_name || 'operator'}-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    if (onToast) onToast("Complete Life OS backup downloaded!");
-  };
-
-  // Import JSON backup
-  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.local_storage) {
-          Object.entries(parsed.local_storage).forEach(([k, v]) => {
-            if (v && typeof v === 'string') {
-              localStorage.setItem(`offscript_${k}`, v);
-            }
-          });
-        }
-        if (onImportData) {
-          onImportData(parsed);
-        }
-        if (onToast) onToast("Data imported successfully! Refreshing...");
-        setTimeout(() => window.location.reload(), 1000);
-      } catch (err) {
-        if (onToast) onToast("Error parsing backup file.");
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const bubblewrapCommand = `npx @bubblewrap/cli init --manifest="${window.location.origin}/manifest.webmanifest"
-npx @bubblewrap/cli build`;
-
-  const capacitorCommand = `npm install @capacitor/core @capacitor/cli @capacitor/android
-npx cap init "Life OS: Off Script" "com.offscript.lifeos" --web-dir "dist"
-npx cap add android
-npx cap run android`;
+  const tabs: { id: PackageTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'overview', label: 'The Packaged App', icon: <Package className="w-3.5 h-3.5" /> },
+    { id: 'sideload', label: 'Debug APK Install', icon: <Smartphone className="w-3.5 h-3.5" /> },
+    { id: 'release', label: 'Release Builds', icon: <Rocket className="w-3.5 h-3.5" /> }
+  ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fade-in print:hidden">
-      <div className="w-full max-w-2xl bg-white border-2 border-stone-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-900/80 backdrop-blur-sm animate-fade-in print:hidden">
+      <div
+        className="bg-[#faf7f0] border-2 border-stone-800 rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+        role="dialog"
+        aria-modal="true"
+      >
         {/* Modal Header */}
-        <div className="bg-slate-900 text-white p-5 border-b border-stone-700 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-500 to-amber-500 flex items-center justify-center text-white shadow-xs">
-              <Smartphone className="w-5 h-5" />
+        <div className="bg-[#02142e] text-white px-5 py-4 border-b border-stone-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#2da2ee] to-[#ea4798] flex items-center justify-center text-white">
+              <Smartphone className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="font-bold font-serif-display text-lg text-white">
-                  Package &amp; Deploy App
+                <h3 className="font-bold font-serif-display text-base sm:text-lg text-white">
+                  Package &amp; Ship the App
                 </h3>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono-code font-bold bg-rose-500/30 text-rose-300 border border-rose-500/40">
-                  Android &amp; PWA
+                <span className="bg-[#ea4798] text-white font-black text-[10px] font-mono-code px-1.5 py-0.5 rounded tracking-wider uppercase">
+                  OFF*SCRIPT ANDROID
                 </span>
               </div>
-              <p className="text-xs text-stone-300">
-                Install as a standalone Android app, export data backups, or prepare print spreads.
+              <p className="text-[11px] text-stone-400 font-mono-code">
+                What the packaged app is, how to install it, and where release builds come from.
               </p>
             </div>
           </div>
+
           <button
-            type="button"
             onClick={onClose}
-            className="p-1.5 text-stone-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 text-stone-400 hover:text-white hover:bg-stone-800 rounded-lg transition-colors"
+            title="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center border-b border-stone-200 bg-stone-50 px-4 pt-2 gap-2 text-xs font-mono-code font-bold">
-          <button
-            type="button"
-            onClick={() => setActiveTab('android')}
-            className={`pb-2.5 px-3 border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'android'
-                ? 'border-rose-600 text-rose-600'
-                : 'border-transparent text-stone-500 hover:text-stone-800'
-            }`}
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>Android Install</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('export_json')}
-            className={`pb-2.5 px-3 border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'export_json'
-                ? 'border-rose-600 text-rose-600'
-                : 'border-transparent text-stone-500 hover:text-stone-800'
-            }`}
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Backup &amp; Restore</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('print')}
-            className={`pb-2.5 px-3 border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'print'
-                ? 'border-rose-600 text-rose-600'
-                : 'border-transparent text-stone-500 hover:text-stone-800'
-            }`}
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print Spreads</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('developer')}
-            className={`pb-2.5 px-3 border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'developer'
-                ? 'border-rose-600 text-rose-600'
-                : 'border-transparent text-stone-500 hover:text-stone-800'
-            }`}
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            <span>APK / TWA Commands</span>
-          </button>
+        <div className="flex items-center border-b border-stone-200 bg-stone-50 px-4 pt-2 gap-2 text-xs font-mono-code font-bold shrink-0 overflow-x-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`pb-2.5 px-3 border-b-2 transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'border-[#ea4798] text-[#ea4798]'
+                  : 'border-transparent text-stone-500 hover:text-stone-800'
+              }`}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+            </button>
+          ))}
         </div>
 
         {/* Tab Body */}
-        <div className="p-6 overflow-y-auto space-y-5 text-stone-700 text-xs font-sans">
-          
-          {/* TAB: ANDROID INSTALL */}
-          {activeTab === 'android' && (
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 text-stone-700 text-xs">
+
+          {/* TAB: OVERVIEW */}
+          {activeTab === 'overview' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-[#eaf6fd] border border-[#bfe3fa] flex items-start gap-3">
+                <Info className="w-5 h-5 text-[#2da2ee] flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold font-serif-display text-[#02142e] text-sm">
+                    The Off*Script app, packed into an Android app
+                  </h4>
+                  <p className="text-slate-700 mt-1">
+                    Life OS is a web app at heart — React + TypeScript with a Node/Express backend
+                    and JSON-file persistence. Capacitor wraps it in a native Android shell
+                    (<span className="font-mono-code font-bold">app.offscript.lifeos</span>, app name{' '}
+                    <span className="font-bold">Off*Script</span>), so it installs like a real app
+                    and opens full-screen, no browser bar.
+                  </p>
+                </div>
+              </div>
+
+              <div className="border border-stone-200 rounded-2xl p-4 bg-white space-y-2">
+                <span className="font-mono-code font-bold text-[11px] uppercase text-slate-900 block">
+                  What's inside the package:
+                </span>
+                <ul className="list-disc list-inside space-y-1 text-stone-600 pl-1">
+                  <li><strong>Mei Chat</strong> — all AI endpoints run through Mei (called by bot ID). No Gemini, no Groq, no Firebase, no API keys in the app.</li>
+                  <li><strong>Full Life OS</strong> — Daily OS, Big 6 Goals, Weekly Debriefs, Money Maps, Cosmic Corner, Chaos Points.</li>
+                  <li><strong>Chaos Wall + private DMs</strong> — the gated community layer, just like the web app.</li>
+                  <li><strong>Drive backup</strong> — your data can be backed up to Google Drive from inside the app.</li>
+                  <li><strong>Playdate ND game corner</strong> — zero timers, zero scores, zero pressure.</li>
+                </ul>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-xl border border-stone-200 bg-[#faf8f4]">
+                  <span className="text-[10px] font-mono-code uppercase font-bold text-stone-500 block">
+                    App ID
+                  </span>
+                  <span className="font-bold text-slate-900 text-xs font-mono-code">
+                    app.offscript.lifeos
+                  </span>
+                  <p className="text-[11px] text-stone-500 mt-0.5">
+                    Matches the real package identity on every build
+                  </p>
+                </div>
+                <div className="p-3.5 rounded-xl border border-stone-200 bg-[#faf8f4]">
+                  <span className="text-[10px] font-mono-code uppercase font-bold text-stone-500 block">
+                    Not on a store
+                  </span>
+                  <span className="font-bold text-slate-900 text-xs">
+                    Sideload &amp; Home Screen only
+                  </span>
+                  <p className="text-[11px] text-stone-500 mt-0.5">
+                    No Play Store listing — install straight from an APK or Add to Home Screen
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#fdf2f7] border border-[#f7c8e0] flex items-start gap-3">
+                <Home className="w-5 h-5 text-[#ea4798] flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold font-serif-display text-[#5c1231] text-sm">
+                    No-install option: Add to Home Screen
+                  </h4>
+                  <p className="text-[#7a2c4f] mt-1">
+                    Open Life OS in Chrome on your phone, tap <strong>⋮ → Add to Home Screen</strong>,
+                    and you get the same full-screen app icon without touching an APK file.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SIDELOAD */}
+          {activeTab === 'sideload' && (
             <div className="space-y-4">
               <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-3">
                 <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <h4 className="font-bold font-serif-display text-emerald-950 text-sm">
-                    {isInstalled ? 'App is Installed & Running Standalone' : 'Ready for Instant Android Installation'}
+                    Sideload the debug APK
                   </h4>
                   <p className="text-emerald-800 mt-1">
-                    {isInstalled
-                      ? 'You are running Life OS in full-screen standalone mode. Offline caching, responsive touch gestures, and local state are active.'
-                      : 'The Web App Manifest and Service Worker are configured with auto-updating offline cache. Install to your Android home screen in seconds.'}
+                    Debug builds are signed for sideloading — that's the fast way to get the
+                    Off*Script app on your own phone for testing. Debug-signed only: not for
+                    the Play Store, not for anyone else's device as a final product.
                   </p>
                 </div>
               </div>
 
-              {!isInstalled && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-4 rounded-2xl bg-stone-50 border border-stone-200">
-                    <div>
-                      <span className="font-bold text-slate-900 text-sm block">
-                        Install as Android PWA
-                      </span>
-                      <span className="text-[11px] text-stone-500 font-mono-code">
-                        No app store account needed · Offline-first
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={install}
-                      disabled={!isInstallable}
-                      className={`px-4 py-2 rounded-xl font-mono-code font-bold text-xs flex items-center space-x-1.5 transition-all shadow-xs ${
-                        isInstallable
-                          ? 'bg-rose-600 hover:bg-rose-500 text-white cursor-pointer active:scale-95'
-                          : 'bg-stone-300 text-stone-500 cursor-not-allowed'
-                      }`}
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>{isInstallable ? 'Install Now' : 'Menu ⋮ > Install'}</span>
-                    </button>
-                  </div>
-
-                  <div className="border border-stone-200 rounded-2xl p-4 bg-white space-y-2">
-                    <span className="font-mono-code font-bold text-[11px] uppercase text-slate-900 block">
-                      Instructions for Android (Chrome / Brave / Edge):
-                    </span>
-                    <ol className="list-decimal list-inside space-y-1 text-stone-600 pl-1">
-                      <li>Tap the <strong>three dots (⋮)</strong> in your mobile browser header.</li>
-                      <li>Select <strong>"Install app"</strong> or <strong>"Add to Home Screen"</strong>.</li>
-                      <li>Tap <strong>Install</strong> to get the standalone Off*Script icon in your app drawer.</li>
-                    </ol>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div className="p-3.5 rounded-xl border border-stone-200 bg-[#faf8f4]">
-                  <span className="text-[10px] font-mono-code uppercase font-bold text-stone-500 block">
-                    Launcher Icon Specs
-                  </span>
-                  <span className="font-bold text-slate-900 text-xs">
-                    Adaptive Maskable 512x512 PNG
-                  </span>
-                  <p className="text-[11px] text-stone-500 mt-0.5">
-                    Safe-zone squircle formatted for Material You &amp; Android 14+
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-xl border border-stone-200 bg-[#faf8f4]">
-                  <span className="text-[10px] font-mono-code uppercase font-bold text-stone-500 block">
-                    Theme Color
-                  </span>
-                  <span className="font-bold text-slate-900 text-xs">
-                    #0f172a (Deep Midnight Slate)
-                  </span>
-                  <p className="text-[11px] text-stone-500 mt-0.5">
-                    Edge-to-edge status bar &amp; navigation bar styling
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: EXPORT JSON */}
-          {activeTab === 'export_json' && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200">
-                <h4 className="font-bold font-serif-display text-indigo-950 text-sm">
-                  Complete Sovereign Data Ownership
-                </h4>
-                <p className="text-indigo-800 mt-1">
-                  Download your entire Life OS archive — daily reflections, Big 6 Goals, Anti-Goals, weekly debriefs, financial maps, and personality diagnostics — in a single JSON backup.
-                </p>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  type="button"
-                  onClick={handleExportJSON}
-                  className="flex-1 py-3 px-4 bg-stone-900 hover:bg-black text-white rounded-xl font-mono-code font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-xs cursor-pointer"
-                >
-                  <Download className="w-4 h-4 text-rose-400" />
-                  <span>Download Full JSON Backup</span>
-                </button>
-
-                <label className="flex-1 py-3 px-4 bg-white hover:bg-stone-50 border-2 border-stone-800 text-slate-900 rounded-xl font-mono-code font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-xs cursor-pointer">
-                  <Upload className="w-4 h-4 text-rose-600" />
-                  <span>Restore from Backup</span>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleFileImport}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
-              <div className="p-4 rounded-xl border border-stone-200 bg-stone-50 text-[11px] font-mono-code text-stone-600 space-y-1">
-                <div>• Operator: {user.chaos_name || 'Sovereign Human'}</div>
-                <div>• Word of the Year: {user.word_of_the_year}</div>
-                <div>• Active Goals: {goals.length} · Anti-Goals: {antiGoals.length}</div>
-                <div>• Weekly Debriefs Logged: {debriefs.length}</div>
-                <div>• Financial Maps: {moneyMaps.length}</div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: PRINT SPREADS */}
-          {activeTab === 'print' && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200">
-                <h4 className="font-bold font-serif-display text-amber-950 text-sm">
-                  Physical Planner Print Spreads (Vervante Specs)
-                </h4>
-                <p className="text-amber-800 mt-1">
-                  Format and print your daily flight logs and weekly debriefs as physical 8.5" × 11" pages, matching the physical 1273-page Life OS binder specifications.
-                </p>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="flex-1 py-3 px-4 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-mono-code font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-xs cursor-pointer"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>Print Today's Spread (8.5" x 11")</span>
-                </button>
-              </div>
-
-              <div className="p-4 rounded-xl border border-stone-200 bg-[#fdfbf7] space-y-1.5 text-stone-600 text-xs">
-                <span className="font-bold font-mono-code text-slate-900 block uppercase">
-                  Vervante Print Specs:
+              <div className="border border-stone-200 rounded-2xl p-4 bg-white space-y-2">
+                <span className="font-mono-code font-bold text-[11px] uppercase text-slate-900 block">
+                  Install steps:
                 </span>
-                <p>• Size: 8.5" × 11" US Letter</p>
-                <p>• Margins: ½" top/bottom, ¼" left/right</p>
-                <p>• Clean print styling: navigation bars, modal backdrops, and action buttons are automatically suppressed during browser print.</p>
+                <ol className="list-decimal list-inside space-y-1.5 text-stone-600 pl-1">
+                  <li>
+                    <strong>Get the APK.</strong> It's shared via a Drive or file link —{' '}
+                    <strong>Gmail blocks APK attachments</strong>, so it won't come as an email file.
+                  </li>
+                  <li>
+                    <strong>Download it on your phone.</strong> Tap the file in your notifications or Files app.
+                  </li>
+                  <li>
+                    <strong>Allow the install.</strong> Android will ask you to allow{' '}
+                    <strong>"Install unknown apps"</strong> for your browser or Files app — toggle it on and continue.
+                  </li>
+                  <li>
+                    <strong>Tap Install.</strong> The Off*Script icon lands in your app drawer,
+                    app ID <span className="font-mono-code font-bold">app.offscript.lifeos</span>.
+                  </li>
+                  <li>
+                    <strong>Open and sign in</strong> like you would on the web app — same account, same data.
+                  </li>
+                </ol>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-950 text-slate-200 flex items-start gap-3">
+                <Bell className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                <p className="text-[11px] leading-relaxed">
+                  Debug builds get a new signature check every time they're rebuilt — if Android
+                  refuses an update install, uninstall the old copy first, then install the new APK.
+                </p>
               </div>
             </div>
           )}
 
-          {/* TAB: DEVELOPER / TWA */}
-          {activeTab === 'developer' && (
+          {/* TAB: RELEASE */}
+          {activeTab === 'release' && (
             <div className="space-y-4">
               <div className="p-4 rounded-2xl bg-slate-900 text-white border border-stone-700">
                 <h4 className="font-bold font-serif-display text-white text-sm flex items-center gap-1.5">
-                  <Terminal className="w-4 h-4 text-rose-400" />
-                  <span>Build Native Android APK with Bubblewrap</span>
+                  <GitBranch className="w-4 h-4 text-[#ea4798]" />
+                  <span>Release builds come from GitHub Actions</span>
                 </h4>
                 <p className="text-stone-300 mt-1 text-[11px]">
-                  Google's official Bubblewrap CLI packages any PWA into a production-ready Android APK for sideloading or the Google Play Store.
+                  Real, signed release APKs (and Play-ready AABs) are produced by the Android
+                  release pipeline — not by building on a laptop. Every push to{' '}
+                  <span className="font-mono-code font-bold text-white">main</span> runs it
+                  automatically, and you can also trigger it by hand from the Actions tab.
                 </p>
               </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-mono-code text-stone-500">
-                  <span>Option 1: Bubblewrap CLI (TWA)</span>
+                  <span>Pipeline file (in the repo root):</span>
                   <button
                     type="button"
-                    onClick={() => handleCopy(bubblewrapCommand, 'bw')}
-                    className="flex items-center gap-1 text-rose-600 hover:text-rose-700 cursor-pointer"
+                    onClick={() => handleCopy(RELEASE_WORKFLOW_PATH, 'wf')}
+                    className="flex items-center gap-1 text-[#ea4798] hover:text-[#d1337f] cursor-pointer"
                   >
-                    {copiedCode === 'bw' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedCode === 'bw' ? 'Copied' : 'Copy'}</span>
+                    {copiedCode === 'wf' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedCode === 'wf' ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
                 <pre className="p-3 rounded-xl bg-slate-950 text-emerald-400 font-mono-code text-[11px] overflow-x-auto">
-                  {bubblewrapCommand}
+                  {RELEASE_WORKFLOW_PATH}
                 </pre>
+                <p className="text-[11px] text-stone-500 font-mono-code">
+                  Repo: {REPO}
+                </p>
+              </div>
+
+              <div className="border border-stone-200 rounded-2xl p-4 bg-white space-y-2">
+                <span className="font-mono-code font-bold text-[11px] uppercase text-slate-900 block">
+                  How a release gets built:
+                </span>
+                <ol className="list-decimal list-inside space-y-1.5 text-stone-600 pl-1">
+                  <li>Code is pushed to <span className="font-mono-code font-bold">main</span> on GitHub.</li>
+                  <li>The <span className="font-mono-code">android-release</span> workflow spins up, builds the web app, syncs Capacitor, and assembles a signed release APK with JDK 21.</li>
+                  <li>Finished APK/AAB artifacts download from the workflow run's Artifacts section.</li>
+                  <li>Prefer manual? Open the repo → <strong>Actions</strong> → <strong>Android Release</strong> → <strong>Run workflow</strong>.</li>
+                </ol>
               </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-mono-code text-stone-500">
-                  <span>Option 2: Capacitor Android Shell</span>
+                  <span className="flex items-center gap-1.5">
+                    <Terminal className="w-3.5 h-3.5" />
+                    <span>Local equivalent (for reference only):</span>
+                  </span>
                   <button
                     type="button"
-                    onClick={() => handleCopy(capacitorCommand, 'cap')}
-                    className="flex items-center gap-1 text-rose-600 hover:text-rose-700 cursor-pointer"
+                    onClick={() => handleCopy(LOCAL_BUILD_COMMAND, 'gradle')}
+                    className="flex items-center gap-1 text-[#ea4798] hover:text-[#d1337f] cursor-pointer"
                   >
-                    {copiedCode === 'cap' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedCode === 'cap' ? 'Copied' : 'Copy'}</span>
+                    {copiedCode === 'gradle' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedCode === 'gradle' ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
                 <pre className="p-3 rounded-xl bg-slate-950 text-emerald-400 font-mono-code text-[11px] overflow-x-auto">
-                  {capacitorCommand}
+                  {LOCAL_BUILD_COMMAND}
                 </pre>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#fdf2f7] border border-[#f7c8e0] flex items-start gap-3">
+                <Sparkles className="w-5 h-5 text-[#ea4798] flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold font-serif-display text-[#5c1231] text-sm">
+                    Boredom=Death, shipped
+                  </h4>
+                  <p className="text-[#7a2c4f] mt-1">
+                    Debug APK for your pocket today. Release pipeline for the real thing tomorrow.
+                    Same app, same Mei-powered brains, zero app-store gatekeeping in between.
+                  </p>
+                </div>
               </div>
             </div>
           )}
-
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 bg-stone-100 border-t border-stone-200 flex items-center justify-between">
-          <span className="text-[11px] font-mono-code text-stone-500">
-            2027 Life OS · Sovereign Offline Applet
+        <div className="bg-stone-100 px-5 py-3 border-t border-stone-300 flex items-center justify-between shrink-0 text-xs font-mono-code text-stone-600">
+          <span className="truncate">
+            <strong className="text-slate-900">Off*Script</strong> · app.offscript.lifeos
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 bg-stone-900 hover:bg-black text-white rounded-xl text-xs font-mono-code font-bold transition-all cursor-pointer"
+            className="px-4 py-1.5 bg-white hover:bg-stone-200 border border-stone-300 text-stone-800 font-bold rounded-lg transition-colors shrink-0 ml-3 flex items-center gap-1.5"
           >
-            Done
+            <Download className="w-3.5 h-3.5" />
+            <span>Done</span>
           </button>
         </div>
       </div>

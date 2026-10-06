@@ -23,7 +23,7 @@ export const STICKER_COLLECTION: StickerItem[] = [
   { id: 'stk-choose-me', category: 'mindset', label: 'I Choose Me', emoji: '💪', color: 'bg-lime-600', border: 'border-lime-700', textColor: 'text-white' },
   { id: 'stk-becoming', category: 'mindset', label: 'I Am Becoming', emoji: '💫', color: 'bg-violet-600', border: 'border-violet-700', textColor: 'text-white' },
   { id: 'stk-progress', category: 'mindset', label: 'Progress Not Perfection', emoji: '📈', color: 'bg-orange-600', border: 'border-orange-700', textColor: 'text-white' },
-  { id: 'stk-unstoppable', category: 'mindset', label: 'Off Script', emoji: '🔥', color: 'bg-rose-600', border: 'border-rose-700', textColor: 'text-white' },
+  { id: 'stk-unstoppable', category: 'mindset', label: 'Off*Script', emoji: '🔥', color: 'bg-rose-600', border: 'border-rose-700', textColor: 'text-white' },
 
   // Goals & Habits
   { id: 'stk-monthly-goal', category: 'goals', label: 'Monthly Goal', emoji: '🎯', color: 'bg-rose-500', border: 'border-rose-600', textColor: 'text-white' },

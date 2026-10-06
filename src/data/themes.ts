@@ -20,7 +20,7 @@ export const CHAOS_THEMES: ChaosMonthTheme[] = [
     tagline: "The blank page, the first breath, the decision to start before you're ready.",
     description: "January doesn't ask you to have it all figured out. It asks you to show up anyway — imperfectly, uncertainly, honestly. The chaos of beginning is not a problem to solve. It is the invitation.",
     monthlyQuestion: "What are you finally willing to start?",
-    accentColor: "#0ea5e9", // Sky
+    accentColor: "#2da2ee", // Sky
     badgeBg: "bg-sky-100",
     badgeText: "text-sky-800"
   },
@@ -32,7 +32,7 @@ export const CHAOS_THEMES: ChaosMonthTheme[] = [
     tagline: "What you want but haven't said out loud. What you miss. What you ache for.",
     description: "Showing up for yourself is not dramatic. It is the quietest revolution. This month isn't about love as a performance — it's about intimacy as a practice with yourself.",
     monthlyQuestion: "Who are you when no one needs anything from you?",
-    accentColor: "#e11d48", // Rose
+    accentColor: "#ea4798", // Rose
     badgeBg: "bg-rose-100",
     badgeText: "text-rose-800"
   },
@@ -44,7 +44,7 @@ export const CHAOS_THEMES: ChaosMonthTheme[] = [
     tagline: "The uncomfortable in-between. You're not who you were, not yet who you're going to be.",
     description: "Growth is not a feeling. It is a decision made quietly, over and over again. Discipline is not a cage; it is the host to your highest momentum.",
     monthlyQuestion: "What are you finally ready to be disciplined about?",
-    accentColor: "#10b981", // Emerald
+    accentColor: "#2da2ee", // Emerald
     badgeBg: "bg-emerald-100",
     badgeText: "text-emerald-800"
   },
@@ -68,7 +68,7 @@ export const CHAOS_THEMES: ChaosMonthTheme[] = [
     tagline: "Joy, ease, softness — and learning to let yourself have them.",
     description: "May asks you to hold two truths at once — who you were and who you're turning into. That weight is not a sign something is wrong; it's proof you're actively doing the work.",
     monthlyQuestion: "What are you becoming that you haven't named yet?",
-    accentColor: "#8b5cf6", // Purple
+    accentColor: "#ea4798", // Purple
     badgeBg: "bg-purple-100",
     badgeText: "text-purple-800"
   },
@@ -80,7 +80,7 @@ export const CHAOS_THEMES: ChaosMonthTheme[] = [
     tagline: "Where are you growing beyond your own edges? What are you becoming too small for?",
     description: "Staying is not the same as settling. One is a choice. The other is a surrender. June is the month that tests your commitments in the messy middle.",
     monthlyQuestion: "Where in your life is staying the harder, braver choice right now?",
-    accentColor: "#059669", // Green
+    accentColor: "#2da2ee", // Green
     badgeBg: "bg-teal-100",
     badgeText: "text-teal-800"
   },
@@ -104,7 +104,7 @@ export const CHAOS_THEMES: ChaosMonthTheme[] = [
     tagline: "What you actually think. What you actually feel. No performance required.",
     description: "August sits in a doorway. Summer is winding down, but the shift hasn't landed yet. The quiet before the shift is not empty. It is full of intelligence.",
     monthlyQuestion: "What needs to be finished, released, or decided before the season changes?",
-    accentColor: "#4f46e5", // Indigo
+    accentColor: "#2da2ee", // Indigo
     badgeBg: "bg-indigo-100",
     badgeText: "text-indigo-800"
   },
@@ -116,9 +116,9 @@ export const CHAOS_THEMES: ChaosMonthTheme[] = [
     tagline: "Every ending is a beginning in disguise. What are you moving through?",
     description: "Structure is not a cage. It is the container that makes the chaos navigable. September is about building systems that honor who you actually are.",
     monthlyQuestion: "What structure have you been resisting that might actually set you free?",
-    accentColor: "#0284c7", // Light blue
-    badgeBg: "bg-blue-100",
-    badgeText: "text-blue-800"
+    accentColor: "#2da2ee", // Light blue
+    badgeBg: "bg-sky-100",
+    badgeText: "text-sky-800"
   },
   {
     month: 10,
@@ -128,7 +128,7 @@ export const CHAOS_THEMES: ChaosMonthTheme[] = [
     tagline: "The parts of yourself you haven't made peace with. The ones that show up anyway.",
     description: "October strips things back. There is nowhere left to hide. Honesty is not cruelty; it is the highest form of respect for your one wild life.",
     monthlyQuestion: "What have you been dishonest about — with yourself most of all?",
-    accentColor: "#be123c", // Crimson
+    accentColor: "#ea4798", // Crimson
     badgeBg: "bg-rose-100",
     badgeText: "text-rose-900"
   },
